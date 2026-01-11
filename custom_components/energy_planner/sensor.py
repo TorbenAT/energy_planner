@@ -9,8 +9,9 @@ import math
 
 import voluptuous as vol
 
-from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
-from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL
+from homeassistant.components.sensor import SensorEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -63,47 +64,24 @@ PLAN_FIELDS = PLAN_FIELDS_HA if PLAN_FIELDS_HA else [
     "policy_grid_charge_allowed", "policy_hold_value_dkk",
 ]
 
-HOURLY_FIELDS = [
-    "hour",
-    "g_buy",
-    "g_sell",
-    "battery_in",
-    "battery_out",
-    "ev_charge",
-    "battery_soc_start",
-    "battery_soc_end",
-    "battery_soc_min",
-    "battery_soc_max",
-    "grid_cost",
-    "grid_revenue",
-]
-
 _MARKDOWN_CHUNK_SIZE = 7000
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-    vol.Optional(CONF_PLAN_LIMIT, default=DEFAULT_PLAN_LIMIT): vol.All(vol.Coerce(int), vol.Range(min=0)),
-    vol.Optional(CONF_MARKDOWN_LIMIT, default=DEFAULT_MARKDOWN_LIMIT): vol.All(vol.Coerce(int), vol.Range(min=0)),
-    vol.Optional(CONF_MARKDOWN_MAX_LENGTH, default=DEFAULT_MARKDOWN_MAX_LENGTH): vol.All(vol.Coerce(int), vol.Range(min=0)),
-        vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): cv.time_period,
-    }
-)
 
-
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: dict,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: Optional[dict] = None,
 ) -> None:
-    """Set up the energy plan sensor from configuration.yaml."""
-
-    name: str = config.get(CONF_NAME, DEFAULT_NAME)
-    plan_limit: int = config.get(CONF_PLAN_LIMIT, DEFAULT_PLAN_LIMIT)
-    markdown_limit: int = config.get(CONF_MARKDOWN_LIMIT, DEFAULT_MARKDOWN_LIMIT)
-    markdown_max_length: int = config.get(CONF_MARKDOWN_MAX_LENGTH, DEFAULT_MARKDOWN_MAX_LENGTH)
-    scan_interval: timedelta = config.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+    """Set up the energy plan sensor from a config entry."""
+    
+    # Get options from config entry
+    options = entry.options
+    name: str = DEFAULT_NAME
+    plan_limit: int = options.get(CONF_PLAN_LIMIT, DEFAULT_PLAN_LIMIT)
+    markdown_limit: int = options.get(CONF_MARKDOWN_LIMIT, DEFAULT_MARKDOWN_LIMIT)
+    markdown_max_length: int = options.get(CONF_MARKDOWN_MAX_LENGTH, DEFAULT_MARKDOWN_MAX_LENGTH)
+    scan_interval_minutes: int = options.get("scan_interval_minutes", int(DEFAULT_SCAN_INTERVAL.total_seconds() / 60))
+    scan_interval = timedelta(minutes=scan_interval_minutes)
 
     # Import compute_plan_report so the coordinator runs the full optimizer instead of just reading DB
     try:
@@ -115,12 +93,9 @@ async def async_setup_platform(
         LOGGER.warning("compute_plan_report not available, falling back to read_plan_from_db")
 
     coordinator = EnergyPlanCoordinator(hass, update_interval=scan_interval, compute_fn=compute_fn)
-    # The coordinator will now run the full optimizer on each interval (every scan_interval minutes)
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN].setdefault(DATA_COORDINATORS, []).append(coordinator)
-
-    # Services are registered in __init__.py async_setup() so they're available immediately
 
     entity = EnergyPlanSensor(
         coordinator=coordinator,

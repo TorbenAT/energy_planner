@@ -1,8 +1,9 @@
 {
   "domain": "energy_planner",
   "name": "Energy Planner",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "documentation": "https://github.com/TorbenAT/energy_planner",
+  "config_flow": true,
   "requirements": [
     "pandas",
     "requests",
@@ -15,6 +16,6 @@
     "pytz",
     "holidays"
   ],
-  "codeowners": ["@energy-planner-maintainers"],
+  "codeowners": ["@TorbenAT"],
   "iot_class": "local_polling"
 }

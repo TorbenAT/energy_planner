@@ -51,10 +51,15 @@ async def _async_refresh_coordinators(coordinators: List) -> None:
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the integration from configuration.yaml."""
+    hass.data.setdefault(DOMAIN, {})
+    return True
 
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Energy Planner from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Register services at domain level so they're available immediately
+    # Register services at domain level
     if not hass.data[DOMAIN].get(DATA_SERVICE_REGISTERED):
         async def _handle_update_service(call: ServiceCall) -> None:
             """Handle the update_plan service call."""
@@ -98,58 +103,21 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         hass.data[DOMAIN][DATA_OPTIMIZER_SERVICE_REGISTERED] = True
         LOGGER.info("Registered service: %s.%s", DOMAIN, SERVICE_RUN_OPTIMIZER)
 
-    # Register reload service
-    if not hass.data[DOMAIN].get("reload_service_registered"):
-        async def _handle_reload(call: ServiceCall) -> None:
-            """Reload the integration by refreshing coordinators and reloading modules."""
-            LOGGER.info("Reloading energy planner integration...")
+    # Forward the config entry to the sensor platform
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
-            try:
-                # Reload Python modules
-                import importlib
+    # Register update listener for options changes
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
-                modules_to_reload = [
-                    name for name in sys.modules.keys()
-                    if name.startswith("energy_planner") and name in sys.modules
-                ]
-
-                for module_name in modules_to_reload:
-                    try:
-                        importlib.reload(sys.modules[module_name])
-                        LOGGER.debug(f"Reloaded module: {module_name}")
-                    except Exception as e:
-                        LOGGER.warning(f"Could not reload {module_name}: {e}")
-
-                # Refresh all coordinators
-                coordinators = hass.data[DOMAIN].get(DATA_COORDINATORS, [])
-                if coordinators:
-                    await _async_refresh_coordinators(coordinators)
-                    LOGGER.info(f"Reloaded {len(coordinators)} coordinator(s) and refreshed sensor data")
-                else:
-                    LOGGER.warning("No coordinators found to refresh")
-
-            except Exception as exc:
-                LOGGER.error("Reload failed: %s", exc, exc_info=True)
-                raise HomeAssistantError(f"Failed to reload integration: {exc}") from exc
-
-        hass.services.async_register(DOMAIN, "reload", _handle_reload)
-        hass.data[DOMAIN]["reload_service_registered"] = True
-        LOGGER.info("Registered service: %s.reload", DOMAIN)
-
-    return True
-
-
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the config entry."""
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
-
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up from a config entry (not used - we use YAML)."""
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    return True
+    return await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+
+
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload config entry when options change."""
+    await async_unload_entry(hass, entry)
+    await async_setup_entry(hass, entry)

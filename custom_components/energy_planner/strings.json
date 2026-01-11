@@ -1,0 +1,27 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Energy Planner",
+        "description": "Set up Energy Planner integration. Configuration options can be changed later."
+      }
+    },
+    "abort": {
+      "already_configured": "Energy Planner is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Energy Planner Options",
+        "description": "Configure Energy Planner settings",
+        "data": {
+          "plan_limit": "Plan limit (number of quarter-hour slots)",
+          "markdown_limit": "Markdown limit (number of rows in markdown table)",
+          "markdown_max_length": "Markdown max length (0 for no limit)",
+          "scan_interval_minutes": "Scan interval (minutes)"
+        }
+      }
+    }
+  }
+}
