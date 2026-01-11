@@ -1,0 +1,20 @@
+{
+  "domain": "energy_planner",
+  "name": "Energy Planner",
+  "version": "0.1.0",
+  "documentation": "https://github.com/example/energy-planner",
+  "requirements": [
+    "pandas",
+    "requests",
+    "sqlalchemy",
+    "pymysql",
+    "python-dotenv",
+    "PyYAML",
+    "pulp",
+    "python-dateutil",
+    "pytz",
+    "holidays"
+  ],
+  "codeowners": ["@energy-planner-maintainers"],
+  "iot_class": "local_polling"
+}

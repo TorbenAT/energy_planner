@@ -1,0 +1,11 @@
+update_plan:
+  name: Refresh energy plan
+  description: Trigger an immediate refresh of the energy plan sensor by reading from the database.
+
+run_optimizer:
+  name: Run energy optimizer
+  description: Execute the full optimization pipeline, write results to database, and refresh all sensors.
+
+reload:
+  name: Reload integration
+  description: Reload the energy_planner integration code and refresh all coordinators.
