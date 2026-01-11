@@ -2,7 +2,7 @@
   "domain": "energy_planner",
   "name": "Energy Planner",
   "version": "0.1.0",
-  "documentation": "https://github.com/example/energy-planner",
+  "documentation": "https://github.com/TorbenAT/energy_planner",
   "requirements": [
     "pandas",
     "requests",
