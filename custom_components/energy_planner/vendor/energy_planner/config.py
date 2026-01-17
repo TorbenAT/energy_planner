@@ -158,7 +158,7 @@ class Settings:
     resolution_minutes: int = DEFAULT_RESOLUTION_MINUTES
     consumption_history_hours: int = 96
     learning_history_days: int = 30
-    battery_reserve_bias: float = 0.3
+    battery_reserve_bias: float = 0.1  # Changed from 0.3 to 0.1 for more aggressive battery usage
     grid_sell_price_multiplier: float = 0.6
     grid_sell_penalty_dkk_per_kwh: float = 0.0
     ev_default_daily_kwh: float = 16.0

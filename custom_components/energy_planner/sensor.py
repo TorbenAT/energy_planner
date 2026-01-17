@@ -64,6 +64,15 @@ PLAN_FIELDS = PLAN_FIELDS_HA if PLAN_FIELDS_HA else [
     "policy_grid_charge_allowed", "policy_hold_value_dkk",
 ]
 
+# Hourly aggregation fields for dashboard
+HOURLY_FIELDS = [
+    "timestamp_local", "hour",
+    "g_buy_total", "g_sell_total", "grid_cost_total", "grid_revenue_total",
+    "pv_generation_total", "house_consumption_total", "ev_charge_total",
+    "battery_charge_total", "battery_discharge_total",
+    "avg_price_buy", "avg_price_sell",
+]
+
 _MARKDOWN_CHUNK_SIZE = 7000
 
 
@@ -389,6 +398,102 @@ def _build_attributes(
         # Back-compat: mirror common KPIs at top-level so existing templates can read them directly
         for key, value in kpis.items():
             attributes.setdefault(key, value)
+
+        # NEW: EV-specific attributes for dashboard
+        try:
+            ev_next_charge_time: Optional[str] = None
+            ev_connection_needed_by: Optional[str] = None
+            ev_total_planned_kwh = 0.0
+            ev_charging_sessions: List[Dict[str, Any]] = []
+            
+            # Find first slot with EV charging > 0.1 kWh
+            for r in recs:
+                ev_charge = _to_float(r.get("ev_charge"))
+                if ev_charge > 0.1:
+                    if ev_next_charge_time is None:
+                        ts_val = r.get("timestamp_local") or r.get("timestamp")
+                        ev_next_charge_time = str(ts_val) if ts_val else None
+                        ev_connection_needed_by = ev_next_charge_time
+                    ev_total_planned_kwh += ev_charge
+            
+            # Build EV charging sessions (group contiguous hours)
+            if recs:
+                current_session: Optional[Dict[str, Any]] = None
+                for r in recs:
+                    ev_charge = _to_float(r.get("ev_charge"))
+                    if ev_charge > 0.1:
+                        ts_val = r.get("timestamp_local") or r.get("timestamp")
+                        price = _to_float(r.get("price_buy"))
+                        
+                        if current_session is None:
+                            current_session = {
+                                "start": str(ts_val) if ts_val else None,
+                                "end": str(ts_val) if ts_val else None,
+                                "kwh": ev_charge,
+                                "prices": [price],
+                            }
+                        else:
+                            # Check if slot is contiguous (max 1 hour gap)
+                            try:
+                                from datetime import datetime
+                                last_time = datetime.fromisoformat(current_session["end"]) if current_session["end"] else None
+                                current_time = datetime.fromisoformat(str(ts_val)) if ts_val else None
+                                if last_time and current_time:
+                                    gap_hours = (current_time - last_time).total_seconds() / 3600
+                                    if gap_hours <= 1.0:
+                                        # Continue session
+                                        current_session["end"] = str(ts_val)
+                                        current_session["kwh"] += ev_charge
+                                        current_session["prices"].append(price)
+                                    else:
+                                        # End session and start new
+                                        prices = current_session["prices"]
+                                        current_session["avg_price"] = sum(prices) / len(prices) if prices else 0.0
+                                        del current_session["prices"]
+                                        ev_charging_sessions.append(current_session)
+                                        
+                                        current_session = {
+                                            "start": str(ts_val),
+                                            "end": str(ts_val),
+                                            "kwh": ev_charge,
+                                            "prices": [price],
+                                        }
+                                else:
+                                    # Can't parse time, assume contiguous
+                                    current_session["end"] = str(ts_val)
+                                    current_session["kwh"] += ev_charge
+                                    current_session["prices"].append(price)
+                            except Exception:
+                                # On error, assume contiguous
+                                current_session["end"] = str(ts_val)
+                                current_session["kwh"] += ev_charge
+                                current_session["prices"].append(price)
+                
+                # Add last session
+                if current_session:
+                    prices = current_session["prices"]
+                    current_session["avg_price"] = sum(prices) / len(prices) if prices else 0.0
+                    del current_session["prices"]
+                    ev_charging_sessions.append(current_session)
+            
+            attributes["ev_next_charge_time"] = ev_next_charge_time
+            attributes["ev_connection_needed_by"] = ev_connection_needed_by
+            attributes["ev_total_planned_kwh"] = round(ev_total_planned_kwh, 2)
+            attributes["ev_charging_sessions"] = ev_charging_sessions
+            
+            # EV connection status (from context if available)
+            ev_connected = True  # Default
+            if hasattr(report, "context") and hasattr(report.context, "ev_connected"):
+                ev_connected = report.context.ev_connected
+            attributes["ev_connected"] = ev_connected
+            
+            # TODO: Add last_ev_window_planned_kwh and last_ev_window_actual_kwh
+            # These require DB query to get yesterday's plan vs actual
+            attributes["last_ev_window_planned_kwh"] = 0.0
+            attributes["last_ev_window_actual_kwh"] = 0.0
+            
+        except Exception:  # pragma: no cover - defensive
+            pass
 
         # Always provide an advisory EV charge recommendation within the available EV window
         # independent of charger status, so dashboards can display it.

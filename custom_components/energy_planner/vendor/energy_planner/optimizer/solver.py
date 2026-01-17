@@ -78,6 +78,9 @@ class OptimizationContext:
     ev_cumulative_deadlines: Sequence[tuple[int, float]] = ()
     ev_window_requirements: Sequence[dict] = ()
     ev_target_pct_series: Sequence[Optional[float]] = ()
+    # Current slot remaining time (for partial slot scaling)
+    remaining_minutes_in_current_slot: float = 15.0
+    ev_connected: bool = True  # Whether EV is physically connected
 
 
 @dataclass(slots=True)
@@ -193,13 +196,36 @@ def solve_quarter_hour(forecast: pd.DataFrame, ctx: OptimizationContext) -> Opti
     PRICE_DEADBAND = 0.05  # DKK deadband required to flip charge/discharge mode
     MIN_RUNTIME_STEPS = 3  # minimum on/off runtime for charge and discharge modes (in slots)
 
+    # CRITICAL FIX: Scale max charge rates for partially elapsed first slot
+    remaining_fraction = ctx.remaining_minutes_in_current_slot / ctx.resolution_minutes
+    max_battery_charge_slot_first = max_battery_charge_slot * remaining_fraction
+    max_battery_discharge_slot_first = max_battery_discharge_slot * remaining_fraction
+    max_ev_charge_slot_first = max_ev_charge_slot * remaining_fraction
+
     # CRITICAL: No upBound on g_buy/g_sell variables - bounds enforced via big-M constraints
     # with y[t] binary to avoid solver conflicts with redundant bounds
     g_buy = lp.LpVariable.dicts("g_buy", range(periods), lowBound=0)
     g_sell = lp.LpVariable.dicts("g_sell", range(periods), lowBound=0)
-    b_in = lp.LpVariable.dicts("b_in", range(periods), lowBound=0, upBound=max_battery_charge_slot)
-    b_out = lp.LpVariable.dicts("b_out", range(periods), lowBound=0, upBound=max_battery_discharge_slot)
-    e = lp.LpVariable.dicts("ev", range(periods), lowBound=0, upBound=max_ev_charge_slot)
+    
+    # Battery charge/discharge - slot 0 has reduced capacity based on remaining time
+    b_in = {}
+    b_out = {}
+    for t in range(periods):
+        if t == 0:
+            b_in[t] = lp.LpVariable(f"b_in_{t}", lowBound=0, upBound=max_battery_charge_slot_first)
+            b_out[t] = lp.LpVariable(f"b_out_{t}", lowBound=0, upBound=max_battery_discharge_slot_first)
+        else:
+            b_in[t] = lp.LpVariable(f"b_in_{t}", lowBound=0, upBound=max_battery_charge_slot)
+            b_out[t] = lp.LpVariable(f"b_out_{t}", lowBound=0, upBound=max_battery_discharge_slot)
+    
+    # EV charge - slot 0 has reduced capacity based on remaining time
+    e = {}
+    for t in range(periods):
+        if t == 0:
+            e[t] = lp.LpVariable(f"ev_{t}", lowBound=0, upBound=max_ev_charge_slot_first)
+        else:
+            e[t] = lp.LpVariable(f"ev_{t}", lowBound=0, upBound=max_ev_charge_slot)
+    
     prod_to_house = lp.LpVariable.dicts("prod_house", range(periods), lowBound=0)
     prod_to_batt = lp.LpVariable.dicts("prod_batt", range(periods), lowBound=0)
     prod_to_ev = lp.LpVariable.dicts("prod_ev", range(periods), lowBound=0)

@@ -103,7 +103,11 @@ def build_context(
 	battery_soc_kwh = max(0.0, min(100.0, battery_soc_pct)) / 100 * BATTERY_CAPACITY_KWH
 	battery_soc_kwh = max(BATTERY_MIN_SOC_KWH, min(BATTERY_CAPACITY_KWH, battery_soc_kwh))
 
-	ev_soc_pct = ha.fetch_numeric_state(settings.ev_soc_sensor) or 0.0
+	ev_soc_pct = ha.fetch_numeric_state(settings.ev_soc_sensor)
+	# If EV is disconnected (no SoC), assume low starting point for planning (10% = ~7.5 kWh)
+	# This ensures full charging recommendation in advisory mode
+	if ev_soc_pct is None or ev_soc_pct <= 0:
+		ev_soc_pct = 10.0
 	ev_soc_kwh = max(0.0, min(100.0, ev_soc_pct)) / 100 * EV_BATTERY_CAPACITY_KWH
 
 	target_soc_pct = ha.fetch_numeric_state(settings.ev_target_soc_sensor) or 90.0
@@ -657,6 +661,28 @@ def build_context(
 	except Exception:
 		pass
 
+	# Calculate remaining minutes in current slot for partial slot scaling
+	start_ts_local = ensure_timezone(start_ts, tz)
+	minutes_into_slot = start_ts_local.minute % period_minutes
+	remaining_minutes = float(period_minutes - minutes_into_slot)
+
+	# Check if EV is physically connected
+	ev_connected = True
+	try:
+		# Primary: binary_sensor.tessa_charger
+		charger_state = ha.fetch_string_state("binary_sensor.tessa_charger")
+		if charger_state:
+			ev_connected = charger_state.lower() in {"on", "true", "connected", "available"}
+		
+		# Secondary fallback: sensor.easee_status
+		if not ev_connected:
+			easee_state = ha.fetch_string_state("sensor.easee_status")
+			if easee_state:
+				ev_connected = easee_state.lower() not in {"disconnected", "unavailable", "unknown", "error"}
+	except Exception:
+		# Default to True for backwards compatibility
+		pass
+
 	context = OptimizationContext(
 		start_timestamp=start_ts,
 		battery_soc_kwh=battery_soc_kwh,
@@ -697,6 +723,8 @@ def build_context(
 		ev_cumulative_deadlines=tuple(ev_deadlines),
 		ev_window_requirements=tuple(ev_window_requirements),
 		ev_target_pct_series=tuple(ev_target_pct_series),
+		remaining_minutes_in_current_slot=remaining_minutes,
+		ev_connected=ev_connected,
 	)
 
 	return context, policy
