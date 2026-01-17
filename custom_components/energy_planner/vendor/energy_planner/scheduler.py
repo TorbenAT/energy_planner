@@ -667,21 +667,21 @@ def build_context(
 	remaining_minutes = float(period_minutes - minutes_into_slot)
 
 	# Check if EV is physically connected
-	ev_connected = True
+	ev_connected = False  # Default til False - kun tilsluttet hvis sensorer bekræfter det
 	try:
 		# Primary: binary_sensor.tessa_charger
 		charger_state = ha.fetch_string_state("binary_sensor.tessa_charger")
-		if charger_state:
-			ev_connected = charger_state.lower() in {"on", "true", "connected", "available"}
+		if charger_state and charger_state.lower() in {"on", "true", "connected", "available"}:
+			ev_connected = True
 		
-		# Secondary fallback: sensor.easee_status
+		# Secondary fallback: sensor.easee_status (kun hvis charger ikke allerede siger connected)
 		if not ev_connected:
 			easee_state = ha.fetch_string_state("sensor.easee_status")
-			if easee_state:
-				ev_connected = easee_state.lower() not in {"disconnected", "unavailable", "unknown", "error"}
+			if easee_state and easee_state.lower() not in {"disconnected", "unavailable", "unknown", "error", "offline"}:
+				ev_connected = True
 	except Exception:
-		# Default to True for backwards compatibility
-		pass
+		# Ved fejl: default til False (konservativ tilgang)
+		ev_connected = False
 
 	context = OptimizationContext(
 		start_timestamp=start_ts,
