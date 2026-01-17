@@ -99,9 +99,31 @@ def build_context(
 	period_minutes = settings.resolution_minutes
 	period_hours = period_minutes / 60.0
 
+	# Dynamiske hardware-parametre fra HA sensorer
+	dyn_capacity_wh = ha.fetch_numeric_state(settings.battery_capacity_sensor)
+	curr_batt_cap_kwh = (dyn_capacity_wh / 1000.0) if dyn_capacity_wh else BATTERY_CAPACITY_KWH
+	
+	dyn_min_soc_pct = ha.fetch_numeric_state(settings.battery_min_soc_sensor)
+	curr_min_soc_pct = dyn_min_soc_pct if dyn_min_soc_pct is not None else 15.0
+	curr_min_soc_kwh = (curr_min_soc_pct / 100.0) * curr_batt_cap_kwh
+
+	from .constants import MAX_BATTERY_CHARGE_KWH, MAX_BATTERY_DISCHARGE_KWH
+	dyn_charge_watts = ha.fetch_numeric_state(settings.battery_charge_power_sensor)
+	if dyn_charge_watts is not None:
+		# Slider kan begrænse yderligere, men aldrig overskride hardware loftet i constants.py
+		curr_max_charge_kwh = min(dyn_charge_watts / 1000.0, MAX_BATTERY_CHARGE_KWH)
+	else:
+		curr_max_charge_kwh = MAX_BATTERY_CHARGE_KWH
+
+	dyn_discharge_watts = ha.fetch_numeric_state(settings.battery_discharge_power_sensor)
+	if dyn_discharge_watts is not None:
+		curr_max_discharge_kwh = min(dyn_discharge_watts / 1000.0, MAX_BATTERY_DISCHARGE_KWH)
+	else:
+		curr_max_discharge_kwh = MAX_BATTERY_DISCHARGE_KWH
+
 	battery_soc_pct = ha.fetch_numeric_state(settings.battery_soc_sensor) or 0.0
-	battery_soc_kwh = max(0.0, min(100.0, battery_soc_pct)) / 100 * BATTERY_CAPACITY_KWH
-	battery_soc_kwh = max(BATTERY_MIN_SOC_KWH, min(BATTERY_CAPACITY_KWH, battery_soc_kwh))
+	battery_soc_kwh = max(0.0, min(100.0, battery_soc_pct)) / 100 * curr_batt_cap_kwh
+	battery_soc_kwh = max(curr_min_soc_kwh, min(curr_batt_cap_kwh, battery_soc_kwh))
 
 	ev_soc_pct = ha.fetch_numeric_state(settings.ev_soc_sensor)
 	# If EV is disconnected (no SoC), assume low starting point for planning (10% = ~7.5 kWh)
@@ -467,18 +489,23 @@ def build_context(
 		else:
 			reserve_signal[idx] = 0.0
 
-	reserve_bias = max(0.0, min(1.0, settings.battery_reserve_bias))
-	capacity_span = max(0.0, BATTERY_CAPACITY_KWH - BATTERY_MIN_SOC_KWH)
+	# Reserve bias sættes til 0 for at muliggøre ren økonomisk optimering uden tvungen buffer.
+	# Brugeren har anmodet om at fjerne "junk" logik der tvinger opladning i dyre timer.
+	reserve_bias = 0.0 
+	capacity_span = max(0.0, curr_batt_cap_kwh - curr_min_soc_kwh)
 	reserve_schedule = []
 	for signal in reserve_signal:
 		reserve_level = reserve_bias + (1.0 - reserve_bias) * signal
-		reserve_target = BATTERY_MIN_SOC_KWH + reserve_level * capacity_span
-		reserve_schedule.append(min(BATTERY_CAPACITY_KWH, max(BATTERY_MIN_SOC_KWH, reserve_target)))
+		reserve_target = curr_min_soc_kwh + reserve_level * capacity_span
+		reserve_schedule.append(min(curr_batt_cap_kwh, max(curr_min_soc_kwh, reserve_target)))
 
-	ev_future_buffer_kwh = min(capacity_span, max(0.0, settings.ev_future_daily_buffer_kwh))
-	if ev_future_buffer_kwh > 0:
-		min_target = BATTERY_MIN_SOC_KWH + ev_future_buffer_kwh
-		reserve_schedule = [max(target, min_target) for target in reserve_schedule]
+	# --- FJERN JUNK START ---
+	# Vi fjerner tvungen buffer-boosting her i scheduler.py, 
+	# da brugeren ønsker ren økonomisk optimering styret fra policy.py
+	# ev_future_buffer_kwh = min(capacity_span, max(0.0, settings.ev_future_daily_buffer_kwh))
+	# if ev_future_buffer_kwh > 0:
+	# 	...
+	# --- FJERN JUNK SLUT ---
 
 	# Optional risk-based reserve boost using price volatility
 	try:
@@ -490,7 +517,7 @@ def build_context(
 				boost_ratio = min(0.2, max(0.0, vol / (baseline_price * 3.0)))
 				if boost_ratio > 0 and capacity_span > 0:
 					boost = boost_ratio * capacity_span
-					reserve_schedule = [min(BATTERY_CAPACITY_KWH, target + boost) for target in reserve_schedule]
+					reserve_schedule = [min(curr_batt_cap_kwh, target + boost) for target in reserve_schedule]
 	except Exception:
 		# Non-fatal if price series missing or any math fails
 		pass
@@ -725,6 +752,10 @@ def build_context(
 		ev_target_pct_series=tuple(ev_target_pct_series),
 		remaining_minutes_in_current_slot=remaining_minutes,
 		ev_connected=ev_connected,
+		# Dynamic hardware limits
+		battery_capacity_kwh=curr_batt_cap_kwh,
+		battery_min_soc_kwh=curr_min_soc_kwh,
+		max_charge_kwh=curr_max_charge_kwh,
 	)
 
 	return context, policy

@@ -359,23 +359,12 @@ def compute_adaptive_policy(
     battery_hold_series_np = np.nan_to_num(future_min_np, nan=0.0) + dynamic_margin_np
     hold_value = float(battery_hold_series_np[0]) if battery_hold_series_np.size else 0.0
 
-    denominator = np.maximum(future_max_np - future_min_np, 1e-6)
-    dynamic_low_reserve_np = np.nan_to_num((price_allin_np - future_min_np) / denominator, nan=0.0)
-    consumption_total_kwh = float(consumption_kw.sum() * period_hours)
+    # Economics: Default to minimal reserve (0.0). Let solver do the arbitrage.
+    dynamic_low_reserve_np = np.zeros_like(price_allin_np)
+
     pv_total_kwh = float(production_kw.sum() * period_hours)
-    pv_deficit_kwh = consumption_total_kwh - pv_total_kwh
-    pv_ratio = 0.0
-    if consumption_total_kwh > 1e-6:
-        pv_ratio = max(0.0, min(1.0, pv_total_kwh / consumption_total_kwh))
-    if pv_deficit_kwh > 0:
-        dynamic_low_reserve_np = np.clip(dynamic_low_reserve_np + 0.1, 0.0, 1.0)
-    elif pv_deficit_kwh < 0:
-        dynamic_low_reserve_np = np.clip(dynamic_low_reserve_np - 0.1, 0.0, 1.0)
-    else:
-        dynamic_low_reserve_np = np.clip(dynamic_low_reserve_np, 0.0, 1.0)
-    # Winter scaling: fewer soltimer -> lower reserve bias
-    winter_scale = 0.35 + 0.65 * pv_ratio
-    dynamic_low_reserve_np = np.clip(dynamic_low_reserve_np * winter_scale, 0.0, 1.0)
+    consumption_total_kwh = float(consumption_kw.sum() * period_hours)
+    pv_ratio = max(0.0, min(1.0, pv_total_kwh / consumption_total_kwh)) if consumption_total_kwh > 1e-6 else 1.0
 
     # Size of the forward-looking window (12 hours). Use exact step count based on current resolution.
     window_slots = max(1, int(round(12.0 / period_hours)))
@@ -404,8 +393,8 @@ def compute_adaptive_policy(
             future_window = future_window[~np.isnan(future_window)]
             if future_window.size > 0:
                 min_future_12 = float(np.min(future_window))
-                # Margin uses same basis on both sides (actual buy price)
-                if (min_future_12 + 0.10) < (price_now_wait - 1e-6):
+                # Economic margin: defer charge if 2 cents cheaper in next 12h
+                if (min_future_12 + 0.02) < (price_now_wait - 1e-6):
                     wait_flag = True
                     wait_reason = "wait_cheaper"
 
@@ -458,51 +447,40 @@ def compute_adaptive_policy(
         buffer_candidates.append(settings.ev_default_daily_kwh)
 
     ev_buffer = max(buffer_candidates) if any(value > 0 for value in buffer_candidates) else 0.0
-    # Optimistic charging: add a fraction of the expected daily EV need to the buffer
-    if optimism_factor > 0 and ev_daily_estimate > 0:
-        extra = float(ev_daily_estimate) * float(optimism_factor)
-        ev_buffer = min(EV_BATTERY_CAPACITY_KWH, ev_buffer + extra)
-        notes.append(f"Optimistic charging +{extra:.1f} kWh (factor {optimism_factor:.2f}).")
     ev_buffer = min(ev_buffer, EV_BATTERY_CAPACITY_KWH)
+
+    # Dynamiske batteri-parametre fra sensorer hvis de findes
+    dyn_capacity_wh = _read_numeric(settings.battery_capacity_sensor)
+    curr_batt_cap_kwh = (dyn_capacity_wh / 1000.0) if dyn_capacity_wh else BATTERY_CAPACITY_KWH
+    
+    dyn_min_soc_pct = _read_numeric(settings.battery_min_soc_sensor)
+    curr_min_soc_pct = dyn_min_soc_pct if dyn_min_soc_pct is not None else 15.0
+    curr_min_soc_kwh = (curr_min_soc_pct / 100.0) * curr_batt_cap_kwh
+
+    dyn_max_soc_pct = _read_numeric(settings.battery_max_soc_sensor)
+    curr_max_soc_pct = dyn_max_soc_pct if dyn_max_soc_pct is not None else 100.0
+    curr_max_soc_kwh = (curr_max_soc_pct / 100.0) * curr_batt_cap_kwh
+
     reserve_schedule = _build_reserve_schedule(
         consumption_kw,
         production_kw,
         period_hours,
         settings,
         extra_load_kwh,
+        curr_min_soc_kwh,
+        curr_batt_cap_kwh,
     )
 
-    capacity_span = max(0.0, BATTERY_CAPACITY_KWH - BATTERY_MIN_SOC_KWH)
-    seasonal_fraction = max(0.35, min(1.0, pv_ratio))
-    seasonal_cap = (
-        BATTERY_MIN_SOC_KWH + capacity_span * seasonal_fraction if capacity_span > 0 else BATTERY_MIN_SOC_KWH
-    )
-    max_buffer_allowed = max(0.0, seasonal_cap - BATTERY_MIN_SOC_KWH)
+    capacity_span = max(0.0, curr_max_soc_kwh - curr_min_soc_kwh)
+    # Pure Economic Optimization: Vi fjerner tvungen buffer-opladning fra gridet.
+    # ev_buffer bruges stadigt i sell_override til at beskytte PV-strøm til senere brug.
+    # Men vi tvinger ikke grid-opladning til EV-bufferen hvis det er dyrt.
+    planned_buffer_kwh = ev_buffer
+    reserve_schedule = [max(target, curr_min_soc_kwh) for target in reserve_schedule]
+    notes.append("Pure Economic optimization: Grid charge only when profitable.")
 
-    planned_buffer_kwh = min(max(ev_buffer, 0.0), max_buffer_allowed)
-    if max_buffer_allowed + 1e-6 < ev_buffer:
-        notes.append(
-            f"EV-buffer trimmed til ca. {planned_buffer_kwh:.1f} kWh (sæsonmaks {seasonal_cap:.1f} kWh)."
-        )
-
-    min_buffer_target = BATTERY_MIN_SOC_KWH + planned_buffer_kwh
-    min_buffer_target = min(seasonal_cap, max(BATTERY_MIN_SOC_KWH, min_buffer_target))
-    pre_window_target = min(seasonal_cap, max(BATTERY_MIN_SOC_KWH, battery_soc_kwh))
-    window_start_index, _ = ev_window
-
-    adjusted_schedule: List[float] = []
-    for idx, target in enumerate(reserve_schedule):
-        capped_target = min(target, seasonal_cap)
-        if idx < window_start_index:
-            adjusted_schedule.append(max(capped_target, pre_window_target))
-        else:
-            adjusted_schedule.append(max(capped_target, min_buffer_target))
-    reserve_schedule = adjusted_schedule
-
-    if capacity_span > 0 and seasonal_cap < BATTERY_CAPACITY_KWH - 0.1:
-        notes.append(f"Winter reserve scaled til ca. {seasonal_cap:.1f} kWh (PV-forhold {pv_ratio:.2f}).")
     ev_buffer_pct = (planned_buffer_kwh / capacity_span) if capacity_span > 0 else 0.0
-    current_soc_pct = (battery_soc_kwh / BATTERY_CAPACITY_KWH) if BATTERY_CAPACITY_KWH > 0 else 0.0
+    current_soc_pct = (battery_soc_kwh / curr_batt_cap_kwh) if curr_batt_cap_kwh > 0 else 0.0
 
     reserve_schedule, price_notes, slot_diagnostics = _apply_price_guidance(
         reserve_schedule,
@@ -516,17 +494,10 @@ def compute_adaptive_policy(
         ev_buffer_pct,
         current_soc_pct,
         slot_diagnostics,
+        curr_min_soc_kwh,
+        curr_batt_cap_kwh,
     )
     notes.extend(price_notes)
-
-    if learned_min_soc_pct is not None and BATTERY_CAPACITY_KWH > 0:
-        min_target_kwh = max(
-            BATTERY_MIN_SOC_KWH,
-            min(BATTERY_CAPACITY_KWH, BATTERY_CAPACITY_KWH * learned_min_soc_pct / 100.0),
-        )
-        if min_target_kwh > BATTERY_MIN_SOC_KWH:
-            reserve_schedule = [max(target, min_target_kwh) for target in reserve_schedule]
-            notes.append(f"Learning raised minimum battery target to approx. {min_target_kwh:.1f} kWh.")
 
     if reserve_schedule and battery_soc_kwh < reserve_schedule[0] - 0.5:
         notes.append("Battery SoC below adaptive reserve; planner will top up when prices allow.")
@@ -537,7 +508,7 @@ def compute_adaptive_policy(
             readable_status = normalized_status.replace("_", " ") or "ukendt"
             notes.append(f"EV ikke klar til opladning (status: {readable_status}). Holder buffer til senere.")
 
-    reserve_penalty = _compute_reserve_penalty(price_signal_series, reserve_schedule)
+    reserve_penalty = _compute_reserve_penalty(price_signal_series, reserve_schedule, curr_min_soc_kwh, curr_batt_cap_kwh)
     penalty_floor = max(hold_value, price_high_threshold, 0.0)
     penalty_cap = penalty_floor + BATTERY_CYCLE_COST_DKK_PER_KWH + 0.25 if penalty_floor > 0 else None
     if penalty_cap is not None and penalty_cap > 0:
@@ -787,8 +758,10 @@ def _build_reserve_schedule(
     period_hours: float,
     settings: Settings,
     initial_deficit_kwh: float,
+    curr_min_soc_kwh: float,
+    curr_batt_cap_kwh: float,
 ) -> List[float]:
-    capacity_span = max(0.0, BATTERY_CAPACITY_KWH - BATTERY_MIN_SOC_KWH)
+    capacity_span = max(0.0, curr_batt_cap_kwh - curr_min_soc_kwh)
     reserve_schedule: List[float] = []
     remaining_deficit = max(0.0, initial_deficit_kwh)
 
@@ -803,12 +776,14 @@ def _build_reserve_schedule(
 
         if capacity_span > 0:
             normalized = min(1.0, remaining_deficit / capacity_span)
-            reserve_level = settings.battery_reserve_bias + (1.0 - settings.battery_reserve_bias) * normalized
+            # Vi fjerner battery_reserve_bias (junk) for at muliggøre ren økonomisk optimering.
+            # Reserven afspejler nu kun det faktiske forventede hus-behov (deficit).
+            reserve_level = normalized
         else:
             reserve_level = 0.0
 
-        target = BATTERY_MIN_SOC_KWH + reserve_level * capacity_span
-        target = max(BATTERY_MIN_SOC_KWH, min(BATTERY_CAPACITY_KWH, target))
+        target = curr_min_soc_kwh + reserve_level * capacity_span
+        target = max(curr_min_soc_kwh, min(curr_batt_cap_kwh, target))
         reserve_schedule.append(target)
 
     reserve_schedule.reverse()
@@ -827,6 +802,8 @@ def _apply_price_guidance(
     ev_buffer_pct: float,
     current_soc_pct: float,
     slot_diagnostics: List[dict],
+    curr_min_soc_kwh: float,
+    curr_batt_cap_kwh: float,
 ) -> Tuple[List[float], List[str], List[dict]]:
     schedule = list(reserve_schedule)
     notes: List[str] = []
@@ -836,7 +813,7 @@ def _apply_price_guidance(
 
     signal = price_allin.reset_index(drop=True).astype(float)
     sell_series = prices_sell.reset_index(drop=True).astype(float) if isinstance(prices_sell, pd.Series) else pd.Series(dtype=float)
-    capacity_span = max(0.0, BATTERY_CAPACITY_KWH - BATTERY_MIN_SOC_KWH)
+    capacity_span = max(0.0, curr_batt_cap_kwh - curr_min_soc_kwh)
     ev_buffer_pct = float(np.clip(ev_buffer_pct, 0.0, 1.0)) if capacity_span > 0 else 0.0
     current_soc_pct = float(np.clip(current_soc_pct, 0.0, 1.0))
 
@@ -849,8 +826,10 @@ def _apply_price_guidance(
         sell_now = float(sell_series.iat[idx]) if idx < len(sell_series) else price_now
         low_pct = float(dynamic_low_reserve_pct[idx]) if idx < len(dynamic_low_reserve_pct) else 0.0
         low_pct = float(np.clip(low_pct, 0.0, 1.0))
-        target_pct = max(low_pct, ev_buffer_pct, current_soc_pct)
-        reserve_target = BATTERY_MIN_SOC_KWH + target_pct * capacity_span if capacity_span > 0 else BATTERY_MIN_SOC_KWH
+        # REMOVED current_soc_pct from max() to allow discharging even if currently full, 
+        # allowing the solver to decide based on price arbitrage rather than a forced hold.
+        target_pct = max(low_pct, ev_buffer_pct)
+        reserve_target = curr_min_soc_kwh + target_pct * capacity_span if capacity_span > 0 else curr_min_soc_kwh
         if reserve_target > schedule[idx]:
             schedule[idx] = reserve_target
 
@@ -870,7 +849,12 @@ def _apply_price_guidance(
     return schedule, notes, slot_diagnostics
 
 
-def _compute_reserve_penalty(prices_buy: pd.Series, reserve_schedule: Sequence[float]) -> float:
+def _compute_reserve_penalty(
+    prices_buy: pd.Series,
+    reserve_schedule: Sequence[float],
+    curr_min_soc_kwh: float,
+    curr_batt_cap_kwh: float,
+) -> float:
     if prices_buy.empty:
         return 0.0
     baseline = float(prices_buy.quantile(0.65))
@@ -878,8 +862,8 @@ def _compute_reserve_penalty(prices_buy: pd.Series, reserve_schedule: Sequence[f
         return 0.0
     utilization = 0.0
     if reserve_schedule:
-        max_reserve = max(reserve_schedule) - BATTERY_MIN_SOC_KWH
-        capacity_span = max(0.0, BATTERY_CAPACITY_KWH - BATTERY_MIN_SOC_KWH)
+        max_reserve = max(reserve_schedule) - curr_min_soc_kwh
+        capacity_span = max(0.0, curr_batt_cap_kwh - curr_min_soc_kwh)
         if capacity_span > 0:
             utilization = max_reserve / capacity_span
     return baseline * (1.0 + 0.5 * utilization)

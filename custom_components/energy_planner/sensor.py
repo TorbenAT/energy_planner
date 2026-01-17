@@ -222,7 +222,7 @@ def _build_attributes(
     attributes["plan_fields"] = PLAN_FIELDS
     
     # Split plan data into three daily attributes to stay under HA's 16KB limit
-    slots_per_day = 96  # 24 hours * 4 slots per hour
+    slots_per_day = 24  # Changed from 96 (hourly resolution)
     attributes["plan_today"] = [
         [_extract_field(record, field) for field in PLAN_FIELDS]
         for record in all_plan_records[:slots_per_day]
@@ -388,7 +388,7 @@ def _build_attributes(
                 if best_avg is not None and best_s is not None:
                     start = time_list[best_s]
                     end = time_list[best_s + w - 1]
-                    kpis["cheapest_block"] = f"{start} → {end} @ {best_avg:.2f} DKK/kWh"
+                    kpis["cheapest_block"] = f"{start} → {end} @ {best_avg:.2f}"
                 else:
                     kpis["cheapest_block"] = "-"
             except Exception:

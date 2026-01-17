@@ -14,10 +14,10 @@ CONF_MARKDOWN_LIMIT = "markdown_limit"
 CONF_MARKDOWN_MAX_LENGTH = "markdown_max_length"
 
 DEFAULT_NAME = "Energy Plan"
-DEFAULT_PLAN_LIMIT = 288
-DEFAULT_MARKDOWN_LIMIT = 96
+DEFAULT_PLAN_LIMIT = 72    # 3 days @ hourly
+DEFAULT_MARKDOWN_LIMIT = 24  # 1 day @ hourly
 DEFAULT_MARKDOWN_MAX_LENGTH = 0
-DEFAULT_SCAN_INTERVAL = timedelta(minutes=15)
+DEFAULT_SCAN_INTERVAL = timedelta(minutes=60)
 
 DATA_COORDINATORS = "coordinators"
 DATA_SERVICE_REGISTERED = "service_registered"

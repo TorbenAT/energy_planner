@@ -217,6 +217,12 @@ class Settings:
     cheap_price_threshold_sensor: Optional[str] = "input_number.energy_planner_cheap_price_threshold_dkk"
     planning_profile_sensor: Optional[str] = "input_select.energy_planner_profile"
     allow_multi_windows_switch: Optional[str] = "input_boolean.energy_planner_multi_windows"
+    # New hardware sensors
+    battery_capacity_sensor: Optional[str] = "input_number.deye12_sun12k_battery_capacity_watts"
+    battery_charge_power_sensor: Optional[str] = "input_number.deye12_sun12k_battery_charge_watts"
+    battery_discharge_power_sensor: Optional[str] = "input_number.deye12_sun12k_battery_discharge_watts"
+    battery_min_soc_sensor: Optional[str] = "input_number.battery_minimum"
+    battery_max_soc_sensor: Optional[str] = "input_number.battery_maximum"
     # Feature flags
     use_linear_solver: bool = False
     use_ml_forecast: bool = False
@@ -353,6 +359,26 @@ def load_settings() -> Settings:
         "ALLOW_MULTI_WINDOWS_SWITCH",
         Settings.__dataclass_fields__["allow_multi_windows_switch"].default,
     )
+    battery_capacity_sensor = os.environ.get(
+        "BATTERY_CAPACITY_SENSOR",
+        Settings.__dataclass_fields__["battery_capacity_sensor"].default,
+    )
+    battery_charge_power_sensor = os.environ.get(
+        "BATTERY_CHARGE_POWER_SENSOR",
+        Settings.__dataclass_fields__["battery_charge_power_sensor"].default,
+    )
+    battery_discharge_power_sensor = os.environ.get(
+        "BATTERY_DISCHARGE_POWER_SENSOR",
+        Settings.__dataclass_fields__["battery_discharge_power_sensor"].default,
+    )
+    battery_min_soc_sensor = os.environ.get(
+        "BATTERY_MIN_SOC_SENSOR",
+        Settings.__dataclass_fields__["battery_min_soc_sensor"].default,
+    )
+    battery_max_soc_sensor = os.environ.get(
+        "BATTERY_MAX_SOC_SENSOR",
+        Settings.__dataclass_fields__["battery_max_soc_sensor"].default,
+    )
 
     use_linear_solver = os.environ.get("USE_LINEAR_SOLVER", "false").strip().lower() in {"1", "true", "yes", "on"}
     use_ml_forecast = os.environ.get("USE_ML_FORECAST", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -415,6 +441,11 @@ def load_settings() -> Settings:
         cheap_price_threshold_sensor=_clean_sensor(cheap_price_threshold_sensor),
         planning_profile_sensor=_clean_sensor(planning_profile_sensor),
         allow_multi_windows_switch=_clean_sensor(allow_multi_windows_switch),
+        battery_capacity_sensor=_clean_sensor(battery_capacity_sensor),
+        battery_charge_power_sensor=_clean_sensor(battery_charge_power_sensor),
+        battery_discharge_power_sensor=_clean_sensor(battery_discharge_power_sensor),
+        battery_min_soc_sensor=_clean_sensor(battery_min_soc_sensor),
+        battery_max_soc_sensor=_clean_sensor(battery_max_soc_sensor),
         use_linear_solver=use_linear_solver,
         use_ml_forecast=use_ml_forecast,
     )

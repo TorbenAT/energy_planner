@@ -17,6 +17,7 @@ from .constants import (
     DEFAULT_SCHEMA,
     EV_BATTERY_CAPACITY_KWH,
 )
+from .constants import SLOTS_PER_HOUR, DEFAULT_RESOLUTION_MINUTES
 from .db import session_scope
 from .ha_client import HomeAssistantClient
 from .models import ActualQuarterHour, ForecastQuarterHour
@@ -359,25 +360,33 @@ class DataPipeline:
 
         price_buy_state = self.ha.fetch_state(self.settings.price_buy_sensor)
         price_buy = self.ha.fetch_price_series(self.settings.price_buy_sensor)
-        buy_map = {ensure_timezone(p.starts_at, self.settings.timezone): p.value for p in price_buy}
         
-        # Also check 'raw_today' and 'raw_tomorrow' attributes for future prices
-        # Some sensors like energi_data_service expose future prices in attributes
-        # even if the main state is current price.
-        # fetch_price_series already handles raw_today/raw_tomorrow, but let's ensure
-        # we are using all available points.
-        
-        df["price_buy"] = [
-            buy_map.get(ts, buy_map.get(ts - timedelta(minutes=self.settings.resolution_minutes)))
-            for ts in df.index
-        ]
+        # Convert to a Series for easier resampling if sensor is high resolution (e.g. 15min)
+        if price_buy:
+            price_series = pd.Series(
+                data=[p.value for p in price_buy],
+                index=[ensure_timezone(p.starts_at, self.settings.timezone) for p in price_buy]
+            ).sort_index()
+            # If the market is 15-min, we take the mean to match our 60-min slot
+            price_series = price_series.resample(freq_str).mean().ffill()
+            buy_map = price_series.to_dict()
+        else:
+            buy_map = {}
+
+        df["price_buy"] = [buy_map.get(ts) for ts in df.index]
 
         price_sell = self.ha.fetch_price_series(self.settings.price_sell_sensor)
-        sell_map = {ensure_timezone(p.starts_at, self.settings.timezone): p.value for p in price_sell}
-        df["price_sell"] = [
-            sell_map.get(ts, sell_map.get(ts - timedelta(minutes=self.settings.resolution_minutes)))
-            for ts in df.index
-        ]
+        if price_sell:
+            sell_series = pd.Series(
+                data=[p.value for p in price_sell],
+                index=[ensure_timezone(p.starts_at, self.settings.timezone) for p in price_sell]
+            ).sort_index()
+            sell_series = sell_series.resample(freq_str).mean().ffill()
+            sell_map = sell_series.to_dict()
+        else:
+            sell_map = {}
+
+        df["price_sell"] = [sell_map.get(ts) for ts in df.index]
 
         period_hours = max(self.settings.resolution_minutes / 60.0, 1e-9)
         freq_str = f"{self.settings.resolution_minutes}min"
@@ -547,7 +556,7 @@ class DataPipeline:
             try:
                 slots_per_day = int(round(24 * 60 / period_minutes))
             except Exception:
-                slots_per_day = 96
+                slots_per_day = 24 * SLOTS_PER_HOUR
             if total_qh is not None and not total_qh.empty and len(total_qh) < slots_per_day:
                 total_qh = pd.Series(dtype=float)
             ev_sensor = self.settings.ev_energy_sensor or FALLBACK_EV_SENSOR

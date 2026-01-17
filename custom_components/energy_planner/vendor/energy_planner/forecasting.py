@@ -11,6 +11,7 @@ import holidays
 
 from .models import ActualQuarterHour
 from .db import session_scope
+from .constants import SLOTS_PER_HOUR, DEFAULT_RESOLUTION_MINUTES
 from .utils.time import ensure_timezone
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ class ConsumptionForecaster:
                 
                 # 2. Check if we need to backfill
                 # If we have very little data (e.g. < 1 day) and HA client is available
-                if len(existing_timestamps) < 96 and ha_client and settings:
+                if len(existing_timestamps) < (24 * SLOTS_PER_HOUR) and ha_client and settings:
                     logger.info(f"Insufficient DB history ({len(existing_timestamps)} records). Attempting backfill from Home Assistant...")
                     
                     # Prefer cumulative total sensor if available, else rate sensor
@@ -122,15 +123,16 @@ class ConsumptionForecaster:
                                     delta.loc[resets] = df.loc[resets, "value"]
                                     delta = delta.fillna(0.0).clip(lower=0.0)
                                     
-                                    # Sum of deltas per 15min = kWh per 15min
-                                    qh_kwh = df.assign(delta=delta).resample('15min', label='right', closed='right')['delta'].sum()
+                                    # Sum of deltas = kWh per slot
+                                    freq = f"{DEFAULT_RESOLUTION_MINUTES}min"
+                                    qh_kwh = df.assign(delta=delta).resample(freq, label='right', closed='right')['delta'].sum()
                                     
                                     # Convert kWh to kW (average power)
-                                    # kW = kWh * 4 (since 15min = 0.25h)
-                                    qh_val = qh_kwh * 4.0
+                                    qh_val = qh_kwh * float(SLOTS_PER_HOUR)
                                 else:
                                     # For power/rate, just take the mean
-                                    qh_val = df['value'].resample('15min', label='right', closed='right').mean()
+                                    freq = f"{DEFAULT_RESOLUTION_MINUTES}min"
+                                    qh_val = df['value'].resample(freq, label='right', closed='right').mean()
                                 
                                 count = 0
                                 new_records = []

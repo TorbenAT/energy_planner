@@ -73,8 +73,8 @@ class PlanReport:
     ev_window_end: Optional[pd.Timestamp]
     ev_planning_mode: str
     ev_switch_state: Optional[str]
-    context: Optional[OptimizationContext] = None  # NEW: Store context for attribute access
     debug: DebugSnapshot
+    context: Optional[OptimizationContext] = None  # NEW: Store context for attribute access
 
     def plan_records(self, limit: Optional[int] = None, digits: int = 3) -> List[dict]:
         """Return quarter-hour plan rows as JSON-serialisable dictionaries."""
@@ -242,9 +242,14 @@ class PlanReport:
     def day_summary_records(self) -> List[dict]:
         return list(self.day_summary)
 
-    def to_markdown(self, limit: Optional[int] = 96, digits: int = 2) -> str:
+    def to_markdown(self, limit: Optional[int] = 24, digits: int = 2) -> str:
         if self.plan.empty:
             return "*Ingen plan er tilgængelig endnu.*"
+        
+        # Adjust limit based on resolution if it was the default
+        if limit == 96:
+            limit = 24 * SLOTS_PER_HOUR
+
         column_defs = [
             ("timestamp_local", "Tid"),
             ("activity", "Handling"),
@@ -254,12 +259,12 @@ class PlanReport:
             ("prod_to_batt", "PV→Batt (kWh)"),
             ("batt_to_house", "Batt→Hus (kWh)"),
             ("batt_to_sell", "Batt→Salg (kWh)"),
-            ("price_buy", "Købspris (DKK/kWh)"),
-            ("price_sell", "Salgspris (DKK/kWh)"),
-            ("grid_cost", "Grid-køb (DKK)"),
-            ("grid_revenue_effective", "Grid-salg (DKK)"),
-            ("battery_cycle_cost", "Batterislid (DKK)"),
-            ("cash_cost_dkk", "Netto (DKK)"),
+            ("price_buy", "Købspris"),
+            ("price_sell", "Salgspris"),
+            ("grid_cost", "Grid-køb"),
+            ("grid_revenue_effective", "Grid-salg"),
+            ("battery_cycle_cost", "Batterislid"),
+            ("cash_cost_dkk", "Netto"),
         ]
         available_defs = [item for item in column_defs if item[0] in self.plan.columns]
         if not available_defs:
@@ -886,7 +891,7 @@ def build_plan_report(
                 end_local = pd.to_datetime(chosen["timestamp_local"].max()) + pd.Timedelta(minutes=settings.resolution_minutes)
                 avg_price = float(chosen["price_buy"].mean()) if not chosen["price_buy"].empty else float("nan")
                 summary.setdefault("policy", {}).setdefault("notes", []).append(
-                    f"EV-buffer: {ev_need:.2f} kWh i billigste blokke {start_local.isoformat()}–{end_local.isoformat()}, ~{avg_price:.2f} DKK/kWh."
+                    f"EV-buffer: {ev_need:.2f} kWh i billigste blokke {start_local.isoformat()}–{end_local.isoformat()}, ~{avg_price:.2f}."
                 )
         # Weekly EV input note if present in summary
         weekly_kwh = summary.get("policy", {}).get("expected_ev_daily_kwh")

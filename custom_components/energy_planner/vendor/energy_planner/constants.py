@@ -2,28 +2,31 @@
 
 from __future__ import annotations
 
-# --- Technical limits (hourly) ---
+# --- Timing ---
+DEFAULT_RESOLUTION_MINUTES = 60
+SLOTS_PER_HOUR = 60 // DEFAULT_RESOLUTION_MINUTES
+
+# --- Technical limits (hourly defaults) ---
 MAX_GRID_BUY_KWH = 17.0          # Max grid import per hour [kWh]
 MAX_GRID_SELL_KWH = 12.0         # Max grid export per hour [kWh]
-MAX_BATTERY_CHARGE_KWH = 11.0    # Max battery charge rate per hour [kWh]
-MAX_BATTERY_DISCHARGE_KWH = 11.0 # Max battery discharge rate per hour [kWh]
+MAX_BATTERY_CHARGE_KWH = 5.0     # Max battery charge rate per hour [kWh] (5kW sensor)
+MAX_BATTERY_DISCHARGE_KWH = 10.0 # Max battery discharge rate per hour [kWh]
 MAX_EV_CHARGE_KWH = 10.0         # Max EV charge per hour [kWh]
 MAX_INVERTER_OUTPUT_KWH = 12.0   # Max combined inverter output per hour [kWh]
 
-SLOTS_PER_HOUR = 4  # 15-min opløsning
-
-# --- Per-slot limits (kWh per 15-minut slot) ---
-MAX_GRID_BUY_QH = MAX_GRID_BUY_KWH / SLOTS_PER_HOUR          # 4.25 kWh/slot
-MAX_GRID_SELL_QH = MAX_GRID_SELL_KWH / SLOTS_PER_HOUR        # 3.00 kWh/slot
+# --- Per-slot limits (kWh per slot based on resolution) ---
+MAX_GRID_BUY_QH = MAX_GRID_BUY_KWH / SLOTS_PER_HOUR
+MAX_GRID_SELL_QH = MAX_GRID_SELL_KWH / SLOTS_PER_HOUR
 MAX_BATTERY_CHARGE_QH = MAX_BATTERY_CHARGE_KWH / SLOTS_PER_HOUR
 MAX_BATTERY_DISCHARGE_QH = MAX_BATTERY_DISCHARGE_KWH / SLOTS_PER_HOUR
 MAX_EV_CHARGE_QH = MAX_EV_CHARGE_KWH / SLOTS_PER_HOUR
 MAX_INVERTER_OUTPUT_QH = MAX_INVERTER_OUTPUT_KWH / SLOTS_PER_HOUR
+MAX_INVERTER_OUTPUT_QH = MAX_INVERTER_OUTPUT_KWH / SLOTS_PER_HOUR
 
 # --- Battery parameters ---
 BATTERY_CAPACITY_KWH = 50.0
-BATTERY_EFFICIENCY_IN = 0.98
-BATTERY_EFFICIENCY_OUT = 0.98
+BATTERY_EFFICIENCY_IN = 0.9825
+BATTERY_EFFICIENCY_OUT = 0.9825
 BATTERY_MIN_SOC_KWH = 5.0
 
 # --- EV parameters ---

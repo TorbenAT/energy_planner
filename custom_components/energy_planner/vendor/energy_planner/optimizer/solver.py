@@ -81,6 +81,13 @@ class OptimizationContext:
     # Current slot remaining time (for partial slot scaling)
     remaining_minutes_in_current_slot: float = 15.0
     ev_connected: bool = True  # Whether EV is physically connected
+    # Dynamic hardware limits
+    battery_capacity_kwh: float = BATTERY_CAPACITY_KWH
+    battery_min_soc_kwh: float = BATTERY_MIN_SOC_KWH
+    max_charge_kwh: float = MAX_BATTERY_CHARGE_KWH
+    max_discharge_kwh: float = MAX_BATTERY_DISCHARGE_KWH
+    max_ev_charge_kwh: float = MAX_EV_CHARGE_KWH
+    ev_battery_capacity_kwh: float = EV_BATTERY_CAPACITY_KWH
 
 
 @dataclass(slots=True)
@@ -183,9 +190,9 @@ def solve_quarter_hour(forecast: pd.DataFrame, ctx: OptimizationContext) -> Opti
     slots_per_hour = 60.0 / max(ctx.resolution_minutes, 1)
     max_grid_buy_slot = MAX_GRID_BUY_KWH / slots_per_hour
     max_grid_sell_slot = MAX_GRID_SELL_KWH / slots_per_hour
-    max_battery_charge_slot = MAX_BATTERY_CHARGE_KWH / slots_per_hour
-    max_battery_discharge_slot = MAX_BATTERY_DISCHARGE_KWH / slots_per_hour
-    max_ev_charge_slot = MAX_EV_CHARGE_KWH / slots_per_hour
+    max_battery_charge_slot = ctx.max_charge_kwh / slots_per_hour
+    max_battery_discharge_slot = ctx.max_discharge_kwh / slots_per_hour
+    max_ev_charge_slot = ctx.max_ev_charge_kwh / slots_per_hour
     max_inverter_output_slot = MAX_INVERTER_OUTPUT_KWH / slots_per_hour
 
     model = lp.LpProblem("QuarterHourOptimization", lp.LpMaximize)
@@ -240,8 +247,8 @@ def solve_quarter_hour(forecast: pd.DataFrame, ctx: OptimizationContext) -> Opti
     # Slack variable for unmet house load (emergency measure to prevent infeasibility)
     house_load_unmet = lp.LpVariable.dicts("house_unmet", range(periods), lowBound=0)
 
-    battery_soc = lp.LpVariable.dicts("SoC", range(periods), lowBound=BATTERY_MIN_SOC_KWH, upBound=BATTERY_CAPACITY_KWH)
-    ev_soc = lp.LpVariable.dicts("EV_SoC", range(periods), lowBound=0, upBound=EV_BATTERY_CAPACITY_KWH)
+    battery_soc = lp.LpVariable.dicts("SoC", range(periods), lowBound=ctx.battery_min_soc_kwh, upBound=ctx.battery_capacity_kwh)
+    ev_soc = lp.LpVariable.dicts("EV_SoC", range(periods), lowBound=0, upBound=ctx.ev_battery_capacity_kwh)
 
     y = lp.LpVariable.dicts("y", range(periods), cat="Binary")
     # Battery mode binaries: charge (c) and discharge (d)
@@ -258,18 +265,18 @@ def solve_quarter_hour(forecast: pd.DataFrame, ctx: OptimizationContext) -> Opti
         ctx.ev_required_kwh = EV_DEFAULT_MIN_CHARGE_KWH
 
     # CRITICAL FIX: Clamp initial SoC to variable bounds to prevent infeasibility
-    battery_soc_prev = max(BATTERY_MIN_SOC_KWH, min(BATTERY_CAPACITY_KWH, ctx.battery_soc_kwh))
+    battery_soc_prev = max(ctx.battery_min_soc_kwh, min(ctx.battery_capacity_kwh, ctx.battery_soc_kwh))
     if abs(battery_soc_prev - ctx.battery_soc_kwh) > 0.01:
         logger.warning(
             "⚠️ Battery SoC clamped: %.2f → %.2f kWh (bounds: [%.1f, %.1f])",
-            ctx.battery_soc_kwh, battery_soc_prev, BATTERY_MIN_SOC_KWH, BATTERY_CAPACITY_KWH
+            ctx.battery_soc_kwh, battery_soc_prev, ctx.battery_min_soc_kwh, ctx.battery_capacity_kwh
         )
     
-    ev_soc_prev = max(0.0, min(EV_BATTERY_CAPACITY_KWH, ctx.ev_soc_kwh))
+    ev_soc_prev = max(0.0, min(ctx.ev_battery_capacity_kwh, ctx.ev_soc_kwh))
     if abs(ev_soc_prev - ctx.ev_soc_kwh) > 0.01:
         logger.warning(
             "⚠️ EV SoC clamped: %.2f → %.2f kWh (bounds: [0, %.1f])",
-            ctx.ev_soc_kwh, ev_soc_prev, EV_BATTERY_CAPACITY_KWH
+            ctx.ev_soc_kwh, ev_soc_prev, ctx.ev_battery_capacity_kwh
         )
     
     # Store initial SoC values for constraint validation
@@ -278,19 +285,13 @@ def solve_quarter_hour(forecast: pd.DataFrame, ctx: OptimizationContext) -> Opti
 
     objective_terms = []
     ev_bonus_allowed = ctx.ev_status in EV_CHARGE_ALLOWED_STATUSES or ctx.ev_planning_override
-    reserve_schedule = list(ctx.battery_reserve_schedule) if ctx.battery_reserve_schedule else [BATTERY_MIN_SOC_KWH] * periods
+    reserve_schedule = list(ctx.battery_reserve_schedule) if ctx.battery_reserve_schedule else [ctx.battery_min_soc_kwh] * periods
     reserve_penalty = max(0.0, ctx.reserve_penalty_per_kwh)
     hold_value_threshold = max(0.0, getattr(ctx, "battery_hold_value_dkk", 0.0) or 0.0)
     
-    # CRITICAL FIX: Ramp reserve schedule from initial SoC to target over first N periods
-    # If initial SoC is below first reserve target, create a feasible ramp-up path
-    if reserve_schedule and len(reserve_schedule) > 0:
-        if battery_soc_initial < reserve_schedule[0]:
-            ramp_periods = 16  # 4 hours at 15-min resolution
-            target_reserve = reserve_schedule[0]
-            delta_per_period = (target_reserve - battery_soc_initial) / ramp_periods
-            for t in range(min(ramp_periods, len(reserve_schedule))):
-                reserve_schedule[t] = battery_soc_initial + delta_per_period * t
+    # REMOVED RAMP: The ramp caused artificial grid-charging in expensive slots.
+    # The soft reserve constraint (slack variable) now handles undershoot gracefully
+    # without forcing a linear uphill path that ignores prices.
 
     effective_sell_prices: list[float] = []
     hold_value_penalty_per_kwh: list[float] = []
@@ -559,8 +560,9 @@ def solve_quarter_hour(forecast: pd.DataFrame, ctx: OptimizationContext) -> Opti
         )
 
     total_reserve_shortfall = lp.lpSum(reserve_shortfall[t] for t in range(periods))
-    # model += -ctx.reserve_penalty_per_kwh * total_reserve_shortfall
-    objective_terms.append(-ctx.reserve_penalty_per_kwh * total_reserve_shortfall)
+    # Dimensions fix: multiply reserve_penalty (DKK/kWh) by slot_hours to get DKK per slot
+    slot_hours = ctx.resolution_minutes / 60.0
+    objective_terms.append(-ctx.reserve_penalty_per_kwh * slot_hours * total_reserve_shortfall)
 
     # EV soft target: require total energy over allowed window, but allow slack if impossible
     ev_required = max(0.0, float(ctx.ev_required_kwh or 0.0))
