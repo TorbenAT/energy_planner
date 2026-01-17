@@ -73,6 +73,7 @@ class PlanReport:
     ev_window_end: Optional[pd.Timestamp]
     ev_planning_mode: str
     ev_switch_state: Optional[str]
+    context: Optional[OptimizationContext] = None  # NEW: Store context for attribute access
     debug: DebugSnapshot
 
     def plan_records(self, limit: Optional[int] = None, digits: int = 3) -> List[dict]:
@@ -1001,6 +1002,7 @@ def build_plan_report(
         ev_window_end=ev_window_end,
         ev_planning_mode=planning_mode,
         ev_switch_state=switch_state,
+        context=context,
         debug=debug_snapshot,
     )
 
@@ -1320,6 +1322,7 @@ def read_plan_from_db(now: Optional[datetime] = None) -> PlanReport:
         ev_window_end=None,  # Not stored in OLD table
         ev_planning_mode="unknown",  # Not stored in OLD table
         ev_switch_state=None,  # Not stored in OLD table
+        context=None,
         debug=DebugSnapshot(
             inputs={
                 "grid_import_kwh": float(total_grid_import),

@@ -444,7 +444,7 @@ def solve_quarter_hour(forecast: pd.DataFrame, ctx: OptimizationContext) -> Opti
                 price_override = False
                 if hold_value_threshold > 0:
                     price_override = price_buy <= hold_value_threshold
-                if not (reserve_override or ev_override or cheap_override or price_override):
+                if not (reserve_override or cheap_override or price_override):
                     model += grid_to_batt[t] == 0
 
         # Arbitrage gate (unless negative price): require profitable future opportunity to allow grid->battery
