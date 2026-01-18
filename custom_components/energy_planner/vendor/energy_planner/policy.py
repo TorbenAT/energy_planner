@@ -447,6 +447,21 @@ def compute_adaptive_policy(
         buffer_candidates.append(settings.ev_default_daily_kwh)
 
     ev_buffer = max(buffer_candidates) if any(value > 0 for value in buffer_candidates) else 0.0
+    
+    # PV Awareness: Reduce forced grid-charge buffer if future PV surplus is high.
+    # We look at the next 24 hours of PV.
+    pv_next_24h = float(production_kw.iloc[:max(1, int(24/period_hours))].sum() * period_hours)
+    house_next_24h = float(consumption_kw.iloc[:max(1, int(24/period_hours))].sum() * period_hours)
+    pv_surplus_24h = max(0.0, pv_next_24h - house_next_24h)
+    
+    if pv_surplus_24h > 5.0 and ev_buffer > 2.0:
+        # If we expect significant PV surplus, we can reduce the grid-charged buffer.
+        # We keep at least the 'required' amount or a small minimum.
+        reduction = min(ev_buffer - max(0.0, ev_required_kwh), pv_surplus_24h * 0.7)
+        if reduction > 0:
+            notes.append(f"Reducing EV grid-buffer by {reduction:.1f} kWh due to forcasted PV surplus ({pv_surplus_24h:.1f} kWh).")
+            ev_buffer -= reduction
+
     ev_buffer = min(ev_buffer, EV_BATTERY_CAPACITY_KWH)
 
     # Dynamiske batteri-parametre fra sensorer hvis de findes

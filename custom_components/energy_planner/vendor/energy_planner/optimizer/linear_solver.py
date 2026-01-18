@@ -125,24 +125,42 @@ def solve_optimization_linear(
         # 9. EV State of Charge
         prob += (ev_soc[t+1] == ev_soc[t] + ev_charge[t]), f"EVSoC_{t}"
         
-        # 10. EV Constraints
+        # 10. EV Constraints & Target Splitting
         if not ctx.ev_allowed_mask[t]:
              prob += ev_charge[t] == 0
-             
+        
+        # Split EV charge into "needed" (up to target) and "excess" (above target) 
+        # to apply different economic incentives.
+        ev_charge_needed = lp.LpVariable(f"ev_charge_needed_{t}", lowBound=0)
+        ev_charge_excess = lp.LpVariable(f"ev_charge_excess_{t}", lowBound=0)
+        prob += ev_charge[t] == ev_charge_needed + ev_charge_excess
+        
+        # Ensure we only count as "needed" if we are below the target SoC at the start of the slot
+        # This is a linear approximation.
+        target_kwh = ctx.ev_target_soc_pct / 100.0 * ctx.ev_battery_capacity_kwh
+        
+        # Soft-limit needed charge by current SoC relative to target
+        # (If ev_soc[t] >= target, ev_charge_needed must be 0)
+        # We use a large M or a simpler logic: ev_soc[t] + ev_charge_needed[t] <= target
+        prob += ev_soc[t] + ev_charge_needed <= max(target_kwh, 0.0)
+
         # --- Objective ---
         cost_grid = g_buy[t] * price_buy
         rev_grid = g_sell[t] * price_sell
         cost_batt = (batt_discharge[t] + batt_charge[t]) * BATTERY_CYCLE_COST_DKK_PER_KWH
-        bonus_ev = ev_charge[t] * EV_CHARGE_BONUS_DKK_PER_KWH
         
-        total_cost += cost_grid - rev_grid + cost_batt - bonus_ev
+        # Bonus only for needed charge. Excess charge has no bonus (or even a small cost)
+        bonus_ev = ev_charge_needed * EV_CHARGE_BONUS_DKK_PER_KWH
+        penalty_ev_excess = ev_charge_excess * 0.01 # Small penalty to discourage pointless 100% charging
         
-        # Reserve Penalty
+        total_cost += cost_grid - rev_grid + cost_batt - bonus_ev + penalty_ev_excess
+        
+        # Reserve Penalty (Scaled to slot duration to avoid over-penalizing persistence)
         if t < len(ctx.battery_reserve_schedule):
             reserve = ctx.battery_reserve_schedule[t]
             shortfall = lp.LpVariable(f"shortfall_{t}", lowBound=0)
             prob += batt_soc[t+1] >= reserve - shortfall
-            total_cost += shortfall * ctx.reserve_penalty_per_kwh
+            total_cost += shortfall * ctx.reserve_penalty_per_kwh * (res_min / 60.0)
 
     # EV Target Constraint
     if ctx.ev_required_kwh and ctx.ev_required_kwh > 0:
