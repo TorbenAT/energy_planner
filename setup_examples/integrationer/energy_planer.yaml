@@ -1,0 +1,1056 @@
+# Aggregated Home Assistant configuration for the Energy Planner integration.
+# Include from configuration.yaml using:
+#   !include homeassistant/integrationer/energy_planer.yaml
+
+# Energy Planner sensor is now configured via UI (Settings -> Devices & Services)
+# Version 0.2.0+ uses Config Flow instead of YAML platform configuration
+
+utility_meter:
+  house_load_qh:
+    source: sensor.deye12_sun12k_total_consumption
+    cycle: quarter-hourly
+
+  ev_charge_session_kwh:
+    source: sensor.carport_lifetime_energy
+    cycle: hourly
+
+  ev_charge_qh:
+    source: sensor.carport_lifetime_energy
+    cycle: quarter-hourly
+
+  pv_production_qh:
+    source: sensor.deye12_sun12k_daily_production
+    cycle: quarter-hourly
+
+input_number:
+  # Legacy inputs removed: arrival/departure SOC and manual kWh are no longer used.
+
+  # Weekly EV expected energy (kWh per day)
+  energy_planner_ev_week_mon_kwh:
+    name: "EV est. mandag (kWh)"
+    min: 0
+    max: 75
+    step: 0.5
+    unit_of_measurement: "kWh"
+    icon: mdi:calendar
+  energy_planner_ev_week_tue_kwh:
+    name: "EV est. tirsdag (kWh)"
+    min: 0
+    max: 75
+    step: 0.5
+    unit_of_measurement: "kWh"
+    icon: mdi:calendar
+  energy_planner_ev_week_wed_kwh:
+    name: "EV est. onsdag (kWh)"
+    min: 0
+    max: 75
+    step: 0.5
+    unit_of_measurement: "kWh"
+    icon: mdi:calendar
+  energy_planner_ev_week_thu_kwh:
+    name: "EV est. torsdag (kWh)"
+    min: 0
+    max: 75
+    step: 0.5
+    unit_of_measurement: "kWh"
+    icon: mdi:calendar
+  energy_planner_ev_week_fri_kwh:
+    name: "EV est. fredag (kWh)"
+    min: 0
+    max: 75
+    step: 0.5
+    unit_of_measurement: "kWh"
+    icon: mdi:calendar
+  energy_planner_ev_week_sat_kwh:
+    name: "EV est. lørdag (kWh)"
+    min: 0
+    max: 75
+    step: 0.5
+    unit_of_measurement: "kWh"
+    icon: mdi:calendar
+  energy_planner_ev_week_sun_kwh:
+    name: "EV est. søndag (kWh)"
+    min: 0
+    max: 75
+    step: 0.5
+    unit_of_measurement: "kWh"
+    icon: mdi:calendar
+
+  # User controls
+  energy_planner_optimistic_charging_pct:
+    name: "Optimistisk opladning (%)"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    icon: mdi:car-electric
+  energy_planner_cheap_price_threshold_dkk:
+    name: "Billig pris tærskel (DKK/kWh)"
+    min: 0
+    max: 5
+    step: 0.05
+    unit_of_measurement: "DKK/kWh"
+    icon: mdi:currency-usd
+
+  energy_planner_ev_departure_mon_pct:
+    name: "EV afgang mandag (%)"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:calendar
+
+  energy_planner_ev_departure_tue_pct:
+    name: "EV afgang tirsdag (%)"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:calendar
+
+  energy_planner_ev_departure_wed_pct:
+    name: "EV afgang onsdag (%)"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:calendar
+
+  energy_planner_ev_departure_thu_pct:
+    name: "EV afgang torsdag (%)"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:calendar
+
+  energy_planner_ev_departure_fri_pct:
+    name: "EV afgang fredag (%)"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:calendar
+
+  energy_planner_ev_departure_sat_pct:
+    name: "EV afgang lørdag (%)"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:calendar
+
+  energy_planner_ev_departure_sun_pct:
+    name: "EV afgang søndag (%)"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:calendar
+
+  energy_planner_ev_default_pct:
+    name: "EV standard afgang (%)"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:car-electric
+    initial: 90
+  # Legacy input removed: house expected daily kWh is provided by policy from the planner.
+
+input_datetime:
+  # EV presence weekly schedule (optional): start/end times for each weekday
+  energy_planner_ev_start_mon:
+    name: "EV vindue start (man)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_end_mon:
+    name: "EV vindue slut (man)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_start_tue:
+    name: "EV vindue start (tir)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_end_tue:
+    name: "EV vindue slut (tir)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_start_wed:
+    name: "EV vindue start (ons)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_end_wed:
+    name: "EV vindue slut (ons)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_start_thu:
+    name: "EV vindue start (tor)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_end_thu:
+    name: "EV vindue slut (tor)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_start_fri:
+    name: "EV vindue start (fre)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_end_fri:
+    name: "EV vindue slut (fre)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_start_sat:
+    name: "EV vindue start (lør)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_end_sat:
+    name: "EV vindue slut (lør)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_start_sun:
+    name: "EV vindue start (søn)"
+    has_date: false
+    has_time: true
+  energy_planner_ev_end_sun:
+    name: "EV vindue slut (søn)"
+    has_date: false
+    has_time: true
+
+input_select:
+  energy_planner_profile:
+    name: "Plan profil"
+    options:
+      - balanced
+      - conservative
+      - aggressive
+    icon: mdi:tune-variant
+
+input_boolean:
+  energy_planner_multi_windows:
+    name: "Tillad flere EV-vinduer"
+    icon: mdi:calendar-range
+
+script:
+  energy_planner_update_now:
+    alias: "Opdater Energy Plan Nu"
+    icon: mdi:solar-power-variant
+    sequence:
+      - service: energy_planner.run_optimizer
+        data: {}
+
+input_text:
+  house_load_quarter_hour_history:
+    name: "House load quarter-hour history"
+    max: 255
+
+  pv_production_quarter_hour_history:
+    name: "PV production quarter-hour history"
+    max: 255
+
+  battery_flow_quarter_hour_history:
+    name: "Battery flow quarter-hour history"
+    max: 255
+
+  energy_plan_md:
+    name: "Energy Plan Markdown"
+    max: 255
+
+sql:
+  - name: "Energy Plan DB Updated"
+    unique_id: energy_plan_db_updated_at
+    db_url: !secret energy_planner_db_url
+    query: "SELECT MAX(created_at) as updated_at FROM energy_plan_slots"
+    column: "updated_at"
+    value_template: >-
+      {% if value %}
+        {{ as_timestamp(value) | timestamp_custom('%Y-%m-%d %H:%M:%S', true) }}
+      {% else %}
+        unknown
+      {% endif %}
+
+template:
+  - sensor:
+      - name: "House load quarter hour"
+        unique_id: house_load_quarter_hour_kwh
+        state: "{{ states('sensor.house_load_qh') | float(0) }}"
+        unit_of_measurement: "kWh"
+        availability: >-
+          {{ states('sensor.house_load_qh') not in ('unknown', 'unavailable', '') }}
+        attributes:
+          quarter_hour_kwh: "{{ state_attr('sensor.house_load_qh', 'last_period') | float(0) }}"
+          history_serialized: "{{ states('input_text.house_load_quarter_hour_history') or '' }}"
+
+      - name: "House load average power"
+        unique_id: house_load_quarter_hour_kw
+        state: >-
+          {% set energy = state_attr('sensor.house_load_quarter_hour_kwh', 'quarter_hour_kwh') | float(0) %}
+          {{ (energy * 4) | round(3) }}
+        unit_of_measurement: "kW"
+        availability: >-
+          {{ state_attr('sensor.house_load_quarter_hour_kwh', 'quarter_hour_kwh') is number }}
+
+      - name: "PV production quarter hour"
+        unique_id: pv_production_quarter_hour_kwh
+        state: "{{ states('sensor.pv_production_qh') | float(0) }}"
+        unit_of_measurement: "kWh"
+        attributes:
+          quarter_hour_kwh: "{{ state_attr('sensor.pv_production_qh', 'last_period') | float(0) }}"
+          history_serialized: "{{ states('input_text.pv_production_quarter_hour_history') or '' }}"
+
+      - name: "EV charge session energy"
+        unique_id: ev_charge_session_energy_kwh
+        state: "{{ states('sensor.ev_charge_session_kwh') | float(0) }}"
+        unit_of_measurement: "kWh"
+
+      - name: "EV charge quarter hour"
+        unique_id: ev_charge_quarter_hour_kwh
+        state: "{{ states('sensor.ev_charge_qh') | float(0) }}"
+        unit_of_measurement: "kWh"
+        availability: >-
+          {{ states('sensor.ev_charge_qh') not in ('unknown', 'unavailable', '') }}
+        attributes:
+          quarter_hour_kwh: "{{ state_attr('sensor.ev_charge_qh', 'last_period') | float(0) }}"
+
+      - name: "EV charge average power"
+        unique_id: ev_charge_quarter_hour_kw
+        state: >-
+          {% set energy = state_attr('sensor.ev_charge_quarter_hour_kwh', 'quarter_hour_kwh') | float(0) %}
+          {{ (energy * 4) | round(3) }}
+        unit_of_measurement: "kW"
+        availability: >-
+          {{ state_attr('sensor.ev_charge_quarter_hour_kwh', 'quarter_hour_kwh') is number }}
+
+      - name: "Energy plan policy EV buffer"
+        unique_id: energy_plan_policy_ev_buffer
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {{ (policy.get('ev_buffer_target_kwh') if policy is mapping else 0) | float(0) }}
+        unit_of_measurement: "kWh"
+        availability: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {{ summary is mapping and summary.get('policy') is mapping }}
+
+      - name: "Energy plan policy extra load"
+        unique_id: energy_plan_policy_extra_load
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {{ (policy.get('future_extra_load_kwh') if policy is mapping else 0) | float(0) }}
+        unit_of_measurement: "kWh"
+
+      - name: "Energy plan expected house load"
+        unique_id: energy_plan_policy_house_daily
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {{ (policy.get('expected_house_daily_kwh') if policy is mapping else 0) | float(0) }}
+        unit_of_measurement: "kWh"
+
+      - name: "Energy plan expected EV need"
+        unique_id: energy_plan_policy_ev_daily
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {{ (policy.get('expected_ev_daily_kwh') if policy is mapping else 0) | float(0) }}
+        unit_of_measurement: "kWh"
+
+      - name: "Energy plan charge window start"
+        unique_id: energy_plan_policy_charge_start
+        state: >-
+          {# Prefer explicit recommendation, then integration ev.window, then weekly next window #}
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else none %}
+          {% set charge = policy.get('charge_recommendation') if policy is mapping else none %}
+          {% set start = charge.get('start') if charge is mapping else none %}
+          {% if start is none %}
+            {% set evw = state_attr('sensor.energy_plan', 'ev_window') %}
+            {% set start = evw.get('start') if evw is mapping else none %}
+          {% endif %}
+          {% if start is none %}
+            {% set start = states('sensor.energy_planner_ev_next_window_start') %}
+          {% endif %}
+          {{ start if start not in ['unknown','unavailable','', none] else '' }}
+        availability: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else none %}
+          {% set charge = policy.get('charge_recommendation') if policy is mapping else none %}
+          {% set start = charge.get('start') if charge is mapping else none %}
+          {% if start is none %}
+            {% set evw = state_attr('sensor.energy_plan', 'ev_window') %}
+            {% set start = evw.get('start') if evw is mapping else none %}
+          {% endif %}
+          {% if start is none %}
+            {% set s = states('sensor.energy_planner_ev_next_window_start') %}
+            {% set start = s if s not in ['unknown','unavailable',''] else none %}
+          {% endif %}
+          {{ start is not none }}
+        device_class: timestamp
+
+      - name: "Energy plan charge window end"
+        unique_id: energy_plan_policy_charge_end
+        state: >-
+          {# Prefer explicit recommendation, then integration ev.window, then weekly next window #}
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else none %}
+          {% set charge = policy.get('charge_recommendation') if policy is mapping else none %}
+          {% set end = charge.get('end') if charge is mapping else none %}
+          {% if end is none %}
+            {% set evw = state_attr('sensor.energy_plan', 'ev_window') %}
+            {% set end = evw.get('end') if evw is mapping else none %}
+          {% endif %}
+          {% if end is none %}
+            {% set end = states('sensor.energy_planner_ev_next_window_end') %}
+          {% endif %}
+          {{ end if end not in ['unknown','unavailable','', none] else '' }}
+        availability: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else none %}
+          {% set charge = policy.get('charge_recommendation') if policy is mapping else none %}
+          {% set end = charge.get('end') if charge is mapping else none %}
+          {% if end is none %}
+            {% set evw = state_attr('sensor.energy_plan', 'ev_window') %}
+            {% set end = evw.get('end') if evw is mapping else none %}
+          {% endif %}
+          {% if end is none %}
+            {% set s = states('sensor.energy_planner_ev_next_window_end') %}
+            {% set end = s if s not in ['unknown','unavailable',''] else none %}
+          {% endif %}
+          {{ end is not none }}
+        device_class: timestamp
+
+      - name: "Energy plan charge window energy"
+        unique_id: energy_plan_policy_charge_energy
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {% set charge = policy.get('charge_recommendation') if policy is mapping else None %}
+          {% if charge is mapping and charge.get('energy_kwh') is not none %}
+            {{ charge.get('energy_kwh') | float(0) | round(2) }}
+          {% else %}
+            {% set kpis = state_attr('sensor.energy_plan','kpis') %}
+            {% if kpis is mapping and kpis.get('ev_energy_kwh') is not none %}
+              {{ kpis.get('ev_energy_kwh') | float(0) | round(2) }}
+            {% else %}
+              {{ (policy.get('ev_buffer_target_kwh') if policy is mapping else 0) | float(0) | round(2) }}
+            {% endif %}
+          {% endif %}
+        unit_of_measurement: "kWh"
+
+      - name: "Energy plan charge window price"
+        unique_id: energy_plan_policy_charge_price
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {% set charge = policy.get('charge_recommendation') if policy is mapping else None %}
+          {% if charge is mapping and charge.get('average_price_dkk') is not none %}
+            {{ charge.get('average_price_dkk') | float(0) | round(2) }}
+          {% else %}
+            {# Compute cheapest 6-slot average within the window as fallback #}
+            {% set start = states('sensor.energy_plan_policy_charge_start') %}
+            {% set end = states('sensor.energy_plan_policy_charge_end') %}
+            {% set sdt = as_datetime(start) %}
+            {% set edt = as_datetime(end) %}
+            {% set fields = state_attr('sensor.energy_plan','plan_fields') or [] %}
+            {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+            {% if sdt and edt and fields and rows and ('price_buy' in fields) and ('timestamp_local' in fields) %}
+              {% set i_price = fields.index('price_buy') %}
+              {% set i_time = fields.index('timestamp_local') %}
+              {% set w = 6 %}
+              {% set filtered = [] %}
+              {% for r in rows %}
+                {% set t = as_datetime(r[i_time]) %}
+                {% if t and t >= sdt and t <= edt %}
+                  {% set _ = filtered.append(r) %}
+                {% endif %}
+              {% endfor %}
+              {% if (filtered | length) >= w %}
+                {% set best_avg = none %}
+                {% for s in range(0, (filtered|length - w + 1)) %}
+                  {% set sum_price = 0 %}
+                  {% for kk in range(0, w) %}
+                    {% set sum_price = sum_price + ((filtered[s+kk][i_price] | string).replace(',', '.') | float(0)) %}
+                  {% endfor %}
+                  {% set avg = (sum_price / w) %}
+                  {% if best_avg is none or avg < best_avg %}
+                    {% set best_avg = avg %}
+                  {% endif %}
+                {% endfor %}
+                {{ (best_avg | float(0)) | round(2) }}
+              {% elif (filtered | length) > 0 %}
+                {% set sum_price = 0 %}
+                {% for rr in filtered %}
+                  {% set sum_price = sum_price + ((rr[i_price] | string).replace(',', '.') | float(0)) %}
+                {% endfor %}
+                {{ ((sum_price / (filtered|length)) | float(0)) | round(2) }}
+              {% else %}
+                0
+              {% endif %}
+            {% else %}
+              0
+            {% endif %}
+          {% endif %}
+        unit_of_measurement: "DKK/kWh"
+
+      - name: "Energy plan policy notes"
+        unique_id: energy_plan_policy_notes
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {% if policy is mapping %}
+            {{ policy.get('notes', []) | join('\n') }}
+          {% else %}
+            
+          {% endif %}
+        attributes:
+          note_list: >-
+            {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+            {% set policy = summary.get('policy') if summary is mapping else None %}
+            {{ policy.get('notes', []) if policy is mapping else [] }}
+
+      - name: "Energy plan recommended EV limit"
+        unique_id: energy_plan_policy_recommended_ev_limit
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {% set pct = (policy.get('recommended_ev_limit_pct') if policy is mapping else None) %}
+          {{ '%.0f' | format(pct | float(0)) if pct is not none else '' }}
+        unit_of_measurement: "%"
+        availability: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {{ (policy is mapping) and (policy.get('recommended_ev_limit_pct') is not none) }}
+        attributes:
+          kwh: >-
+            {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+            {% set policy = summary.get('policy') if summary is mapping else None %}
+            {% set k = (policy.get('recommended_ev_limit_kwh') if policy is mapping else None) %}
+            {{ '%.1f' | format(k | float(0)) if k is not none else '' }}
+          reason: >-
+            {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+            {% set policy = summary.get('policy') if summary is mapping else None %}
+            {{ policy.get('recommended_ev_limit_reason') if policy is mapping else '' }}
+
+
+      - name: "Energy plan policy planned EV"
+        unique_id: energy_plan_policy_planned_ev
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {{ (policy.get('planned_ev_kwh') if policy is mapping else 0) | float(0) }}
+        unit_of_measurement: "kWh"
+        attributes:
+          source: >-
+            {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+            {% set policy = summary.get('policy') if summary is mapping else None %}
+            {{ policy.get('planned_ev_source') if policy is mapping else None }}
+          arrival_soc_pct: >-
+            {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+            {% set policy = summary.get('policy') if summary is mapping else None %}
+            {% set value = policy.get('planned_ev_arrival_soc_pct') if policy is mapping else None %}
+            {{ value if value is not none else '' }}
+          departure_soc_pct: >-
+            {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+            {% set policy = summary.get('policy') if summary is mapping else None %}
+            {% set value = policy.get('planned_ev_departure_soc_pct') if policy is mapping else None %}
+            {{ value if value is not none else '' }}
+          schedule_day: >-
+            {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+            {% set policy = summary.get('policy') if summary is mapping else None %}
+            {{ policy.get('planned_ev_schedule_day') if policy is mapping else None }}
+
+      - name: "EV ugeskøn (i dag)"
+        unique_id: energy_planner_ev_week_today_kwh
+        state: >-
+          {% set keys = ['mon','tue','wed','thu','fri','sat','sun'] %}
+          {% set now_ts = now() %}
+          {% set idx = now_ts.weekday() %}
+          {% set key = keys[idx] %}
+          {% set value = states('input_number.energy_planner_ev_week_' ~ key ~ '_kwh') | float(0) %}
+          {{ value | round(2) }}
+        unit_of_measurement: "kWh"
+        availability: "true"
+
+      - name: "Energy plan policy house override"
+        unique_id: energy_plan_policy_house_override
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {{ (policy.get('house_expected_override_kwh') if policy is mapping else 0) | float(0) }}
+        unit_of_measurement: "kWh"
+
+      # Next EV presence window derived from weekly inputs. Useful when charger status is disconnected; planner can still advise.
+      - name: "Energy planner EV next window start"
+        unique_id: energy_planner_ev_next_window_start
+        state: >-
+          {% set day_keys = ['mon','tue','wed','thu','fri','sat','sun'] %}
+          {% set now_dt = now() %}
+          {% set ns = namespace(found=None) %}
+          {% for offset in range(0,7) %}
+            {% set idx = (now_dt.weekday() + offset) % 7 %}
+            {% set key = day_keys[idx] %}
+            {% set s = states('input_datetime.energy_planner_ev_start_' ~ key) %}
+            {% set e = states('input_datetime.energy_planner_ev_end_' ~ key) %}
+            {% if s not in ['unknown','unavailable',''] and e not in ['unknown','unavailable',''] %}
+              {% set parts = s.split(':') %}
+              {% set hour = parts[0] | int(0) %}
+              {% set minute = parts[1] | int(0) %}
+              {% set base = now_dt + timedelta(days=offset) %}
+              {% set dt = base.replace(hour=hour, minute=minute, second=0, microsecond=0) %}
+              {% set ns.found = as_datetime(dt).isoformat() %}
+              {% break %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.found or '' }}
+        availability: >-
+          {% set day_keys = ['mon','tue','wed','thu','fri','sat','sun'] %}
+          {% set now_dt = now() %}
+          {% for offset in range(0,7) %}
+            {% set idx = (now_dt.weekday() + offset) % 7 %}
+            {% set key = day_keys[idx] %}
+            {% set s = states('input_datetime.energy_planner_ev_start_' ~ key) %}
+            {% set e = states('input_datetime.energy_planner_ev_end_' ~ key) %}
+            {% if s not in ['unknown','unavailable',''] and e not in ['unknown','unavailable',''] %}
+              true
+              {% break %}
+            {% endif %}
+          {% endfor %}
+        device_class: timestamp
+
+      - name: "Energy planner EV next window end"
+        unique_id: energy_planner_ev_next_window_end
+        state: >-
+          {% set day_keys = ['mon','tue','wed','thu','fri','sat','sun'] %}
+          {% set now_dt = now() %}
+          {% set ns = namespace(found=None) %}
+          {% for offset in range(0,7) %}
+            {% set idx = (now_dt.weekday() + offset) % 7 %}
+            {% set key = day_keys[idx] %}
+            {% set s = states('input_datetime.energy_planner_ev_start_' ~ key) %}
+            {% set e = states('input_datetime.energy_planner_ev_end_' ~ key) %}
+            {% if s not in ['unknown','unavailable',''] and e not in ['unknown','unavailable',''] %}
+              {# Build start and end on the same base date #}
+              {% set s_parts = s.split(':') %}
+              {% set s_hour = s_parts[0] | int(0) %}
+              {% set s_minute = s_parts[1] | int(0) %}
+              {% set e_parts = e.split(':') %}
+              {% set e_hour = e_parts[0] | int(0) %}
+              {% set e_minute = e_parts[1] | int(0) %}
+              {% set base = now_dt + timedelta(days=offset) %}
+              {% set start_dt = base.replace(hour=s_hour, minute=s_minute, second=0, microsecond=0) %}
+              {% set end_dt = base.replace(hour=e_hour, minute=e_minute, second=0, microsecond=0) %}
+              {# If the end time is earlier than or equal to start, interpret as crossing midnight -> add 1 day #}
+              {% if end_dt <= start_dt %}
+                {% set end_dt = end_dt + timedelta(days=1) %}
+              {% endif %}
+              {% set ns.found = as_datetime(end_dt).isoformat() %}
+              {% break %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.found or '' }}
+        availability: >-
+          {% set day_keys = ['mon','tue','wed','thu','fri','sat','sun'] %}
+          {% set now_dt = now() %}
+          {% for offset in range(0,7) %}
+            {% set idx = (now_dt.weekday() + offset) % 7 %}
+            {% set key = day_keys[idx] %}
+            {% set s = states('input_datetime.energy_planner_ev_start_' ~ key) %}
+            {% set e = states('input_datetime.energy_planner_ev_end_' ~ key) %}
+            {% if s not in ['unknown','unavailable',''] and e not in ['unknown','unavailable',''] %}
+              true
+              {% break %}
+            {% endif %}
+          {% endfor %}
+        device_class: timestamp
+
+
+      - name: "House load without EV quarter hour"
+        unique_id: house_load_without_ev_quarter_hour_kwh
+        state: >-
+          {% set total = state_attr('sensor.house_load_qh', 'last_period') | float(0) %}
+          {% set ev = state_attr('sensor.ev_charge_qh', 'last_period') | float(0) %}
+          {% set result = total - ev %}
+          {% if result > 0 %}
+            {{ result | round(3) }}
+          {% else %}
+            0
+          {% endif %}
+        unit_of_measurement: "kWh"
+        availability: >-
+          {{ state_attr('sensor.house_load_qh', 'last_period') is number and state_attr('sensor.ev_charge_qh', 'last_period') is number }}
+        attributes:
+          quarter_hour_kwh: >-
+            {% set total = state_attr('sensor.house_load_qh', 'last_period') | float(0) %}
+            {% set ev = state_attr('sensor.ev_charge_qh', 'last_period') | float(0) %}
+            {% set result = total - ev %}
+            {% if result > 0 %}
+              {{ result | round(6) }}
+            {% else %}
+              0
+            {% endif %}
+
+      - name: "House load without EV average power"
+        unique_id: house_load_without_ev_quarter_hour_kw
+        state: >-
+          {% set energy = state_attr('sensor.house_load_without_ev_quarter_hour_kwh', 'quarter_hour_kwh') | float(0) %}
+          {{ (energy * 4) | round(3) }}
+        unit_of_measurement: "kW"
+        availability: >-
+          {{ state_attr('sensor.house_load_without_ev_quarter_hour_kwh', 'quarter_hour_kwh') is number }}
+
+      - name: "House consumption without EV"
+        unique_id: house_consumption_without_ev_kwh
+        state: >-
+          {% set total = states('sensor.house_load_quarter_hour') | float(0) %}
+          {% set ev = states('sensor.ev_charge_quarter_hour') | float(0) %}
+          {% set result = total - ev %}
+          {% if result > 0 %}
+            {{ result | round(3) }}
+          {% else %}
+            0
+          {% endif %}
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        availability: >-
+          {{ states('sensor.house_load_quarter_hour') not in ('unknown', 'unavailable', '') and 
+             states('sensor.ev_charge_quarter_hour') not in ('unknown', 'unavailable', '') }}
+        attributes:
+          friendly_name: "Husforbrug (uden EV)"
+          icon: "mdi:home-lightning-bolt"
+          last_reset: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}"
+
+      - name: "Energy planner forventet 24t forbrug"
+        unique_id: energy_planner_expected_total_24h
+        state: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set policy = summary.get('policy') if summary is mapping else None %}
+          {% set house = (policy.get('expected_house_daily_kwh') if policy is mapping else 0) | float(0) %}
+          {% set ev = (policy.get('planned_ev_kwh') if policy is mapping else 0) | float(0) %}
+          {{ (house + ev) | round(3) }}
+        unit_of_measurement: "kWh"
+      - name: "Energy plan KPIs"
+        unique_id: energy_plan_kpis
+        state: "{{ now() }}"
+        attributes:
+          tz: "{{ state_attr('sensor.energy_plan','timezone') or '' }}"
+          # Energi (kWh)
+          grid_import_kwh: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('grid_import_kwh') is not none %}
+              {{ k.get('grid_import_kwh') | float(0) | round(2) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set s = 0 %}
+              {% if f and rows and ('g_buy' in f) %}
+                {% set i = f.index('g_buy') %}
+                {% for row in rows %}
+                  {% set s = s + ((row[i] | string).replace(',', '.') | float(0)) %}
+                {% endfor %}
+              {% endif %}
+              {{ s | round(2) }}
+            {% endif %}
+          grid_export_kwh: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('grid_export_kwh') is not none %}
+              {{ k.get('grid_export_kwh') | float(0) | round(2) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set s = 0 %}
+              {% if f and rows and ('g_sell' in f) %}
+                {% set i = f.index('g_sell') %}
+                {% for row in rows %}
+                  {% set s = s + ((row[i] | string).replace(',', '.') | float(0)) %}
+                {% endfor %}
+              {% endif %}
+              {{ s | round(2) }}
+            {% endif %}
+          # Faktisk husforbrug (kWh) baseret på flows til huset
+          house_consumption_kwh: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('house_consumption_kwh') is not none %}
+              {{ k.get('house_consumption_kwh') | float(0) | round(2) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set s = 0 %}
+              {% if f and rows %}
+                {% set ig = f.index('house_from_grid') if 'house_from_grid' in f else (f.index('grid_to_house') if 'grid_to_house' in f else none) %}
+                {% set ib = f.index('house_from_battery') if 'house_from_battery' in f else (f.index('batt_to_house') if 'batt_to_house' in f else none) %}
+                {% set ip = f.index('house_from_pv') if 'house_from_pv' in f else (f.index('prod_to_house') if 'prod_to_house' in f else none) %}
+                {% for row in rows %}
+                  {% set g2h = ((row[ig] if ig is not none else 0) | string).replace(',', '.') | float(0) %}
+                  {% set b2h = ((row[ib] if ib is not none else 0) | string).replace(',', '.') | float(0) %}
+                  {% set p2h = ((row[ip] if ip is not none else 0) | string).replace(',', '.') | float(0) %}
+                  {% set s = s + g2h + b2h + p2h %}
+                {% endfor %}
+              {% endif %}
+              {{ s | round(2) }}
+            {% endif %}
+          # Økonomi
+          grid_cost_dkk: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('grid_cost_dkk') is not none %}
+              {{ k.get('grid_cost_dkk') | float(0) | round(2) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set s = 0 %}
+              {% if f and rows and ('grid_cost' in f) %}
+                {% set i = f.index('grid_cost') %}
+                {% for row in rows %}
+                  {% set s = s + ((row[i] | string).replace(',', '.') | float(0)) %}
+                {% endfor %}
+              {% endif %}
+              {{ s | round(2) }}
+            {% endif %}
+          grid_revenue_eff_dkk: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('grid_revenue_eff_dkk') is not none %}
+              {{ k.get('grid_revenue_eff_dkk') | float(0) | round(2) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set s = 0 %}
+              {% if f and rows and ('grid_revenue_effective' in f) %}
+                {% set i = f.index('grid_revenue_effective') %}
+                {% for row in rows %}
+                  {% set s = s + ((row[i] | string).replace(',', '.') | float(0)) %}
+                {% endfor %}
+              {% endif %}
+              {{ s | round(2) }}
+            {% endif %}
+          battery_cycle_cost_dkk: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('battery_cycle_cost_dkk') is not none %}
+              {{ k.get('battery_cycle_cost_dkk') | float(0) | round(2) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set s = 0 %}
+              {% if f and rows and ('battery_cycle_cost' in f) %}
+                {% set i = f.index('battery_cycle_cost') %}
+                {% for row in rows %}
+                  {% set s = s + ((row[i] | string).replace(',', '.') | float(0)) %}
+                {% endfor %}
+              {% endif %}
+              {{ s | round(2) }}
+            {% endif %}
+          ev_bonus_dkk: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') or {} %}
+            {% if k is mapping and k.get('ev_bonus_dkk') is not none %}
+              {{ k.get('ev_bonus_dkk') | float(0) | round(2) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set s = 0.0 %}
+
+              {% if rows %}
+                {# CASE 1: rows er liste af dicts #}
+                {% if rows[0] is mapping %}
+                  {% for row in rows %}
+                    {% set s = s + (row.get('ev_bonus', 0) | float(0)) %}
+                  {% endfor %}
+
+                {# CASE 2: rows er liste af lister + plan_fields #}
+                {% elif f and ('ev_bonus' in f) %}
+                  {% set i = f.index('ev_bonus') %}
+                  {% for row in rows %}
+                    {% if i < (row | length) %}
+                      {% set val = (row[i] | string).replace(',', '.') %}
+                      {% set s = s + (val | float(0)) %}
+                    {% endif %}
+                  {% endfor %}
+                {% endif %}
+              {% endif %}
+
+              {{ s | round(2) }}
+            {% endif %}
+          net_dkk: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('net_dkk') is not none %}
+              {{ k.get('net_dkk') | float(0) | round(2) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set grid_cost = 0 %}
+              {% set revenue_effective = 0 %}
+              {% set batt_cycle = 0 %}
+              {% set ev_bonus = 0 %}
+              {% if f and rows %}
+                {% set igc = f.index('grid_cost') if 'grid_cost' in f else none %}
+                {% set ire = f.index('grid_revenue_effective') if 'grid_revenue_effective' in f else none %}
+                {% set ibc = f.index('battery_cycle_cost') if 'battery_cycle_cost' in f else none %}
+                {% set iev = f.index('ev_bonus') if 'ev_bonus' in f else none %}
+                {% for row in rows %}
+                  {% set grid_cost = grid_cost + (((row[igc] if igc is not none else 0) | string).replace(',', '.') | float(0)) %}
+                  {% set revenue_effective = revenue_effective + (((row[ire] if ire is not none else 0) | string).replace(',', '.') | float(0)) %}
+                  {% set batt_cycle = batt_cycle + (((row[ibc] if ibc is not none else 0) | string).replace(',', '.') | float(0)) %}
+                  {% set ev_bonus = ev_bonus + (((row[iev] if iev is not none else 0) | string).replace(',', '.') | float(0)) %}
+                {% endfor %}
+              {% endif %}
+              {{ (grid_cost - revenue_effective + batt_cycle - ev_bonus) | round(2) }}
+            {% endif %}
+          # EV energi i horisonten (kWh)
+          ev_energy_kwh: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') or {} %}
+            {% if k is mapping and k.get('ev_energy_kwh') is not none %}
+              {{ k.get('ev_energy_kwh') | float(0) | round(2) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set s = 0.0 %}
+
+              {% if rows %}
+                {# CASE 1: rows er liste af dicts #}
+                {% if rows[0] is mapping %}
+                  {% for row in rows %}
+                    {% set s = s + (row.get('ev_charge', 0) | float(0)) %}
+                  {% endfor %}
+
+                {# CASE 2: rows er liste af lister + plan_fields #}
+                {% elif f %}
+                  {% set i_ev = f.index('ev_charge') if 'ev_charge' in f else none %}
+                  {% set i_ge = f.index('grid_to_ev') if 'grid_to_ev' in f else none %}
+                  {% set i_be = f.index('batt_to_ev') if 'batt_to_ev' in f else none %}
+                  {% set i_pe = f.index('prod_to_ev') if 'prod_to_ev' in f else none %}
+                  {% for row in rows %}
+                    {% if i_ev is not none and i_ev < (row | length) %}
+                      {% set s = s + ((row[i_ev] | string).replace(',', '.') | float(0)) %}
+                    {% else %}
+                      {% set s = s
+                        + (((row[i_ge] if i_ge is not none and i_ge < (row | length) else 0) | string).replace(',', '.') | float(0))
+                        + (((row[i_be] if i_be is not none and i_be < (row | length) else 0) | string).replace(',', '.') | float(0))
+                        + (((row[i_pe] if i_pe is not none and i_pe < (row | length) else 0) | string).replace(',', '.') | float(0)) %}
+                    {% endif %}
+                  {% endfor %}
+                {% endif %}
+              {% endif %}
+
+              {{ s | round(2) }}
+            {% endif %}
+          # Vent/Arbitrage opsummering
+          wait_slots: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('wait_slots') is not none %}
+              {{ k.get('wait_slots') | int(0) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set count = 0 %}
+              {% if f and rows and ('policy_wait_flag' in f) %}
+                {% set i = f.index('policy_wait_flag') %}
+                {% for row in rows %}
+                  {% if row[i] %}
+                    {% set count = count + 1 %}
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+              {{ count }}
+            {% endif %}
+          arb_ok: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('arb_ok') is not none %}
+              {{ k.get('arb_ok') | int(0) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set count = 0 %}
+              {% if f and rows and ('arb_gate' in f) %}
+                {% set i = f.index('arb_gate') %}
+                {% for row in rows %}
+                  {% if row[i] in [True, 'true', 'True', 1] %}
+                    {% set count = count + 1 %}
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+              {{ count }}
+            {% endif %}
+          arb_blocked: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('arb_blocked') is not none %}
+              {{ k.get('arb_blocked') | int(0) }}
+            {% else %}
+              {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% set count = 0 %}
+              {% if f and rows and ('arb_gate' in f) %}
+                {% set i = f.index('arb_gate') %}
+                {% for row in rows %}
+                  {% if row[i] in [False, 'false', 'False', 0] %}
+                    {% set count = count + 1 %}
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+              {{ count }}
+            {% endif %}
+          # Billigste 6 sammenhængende slots (ca. 1,5 time)
+          cheapest_block: >-
+            {% set k = state_attr('sensor.energy_plan','kpis') %}
+            {% if k is mapping and k.get('cheapest_block') %}
+              {{ k.get('cheapest_block') }}
+            {% else %}
+              {% set fields = state_attr('sensor.energy_plan','plan_fields') or [] %}
+              {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+              {% if not fields or not rows or ('price_buy' not in fields) or ('timestamp_local' not in fields) %}
+                -
+              {% else %}
+                {% set i_price = fields.index('price_buy') %}
+                {% set i_time = fields.index('timestamp_local') %}
+                {% set w = 6 %}
+                {% set best_avg = None %}
+                {% set best_start = None %}
+                {% set best_end = None %}
+                {% for s in range(0, (rows|length - w + 1)) %}
+                  {% set sum_price = 0 %}
+                  {% for kk in range(0, w) %}
+                    {% set sum_price = sum_price + ((rows[s+kk][i_price] | string).replace(',', '.') | float(0)) %}
+                  {% endfor %}
+                  {% set avg = (sum_price / w) %}
+                  {% if best_avg is none or avg < best_avg %}
+                    {% set best_avg = avg %}
+                    {% set best_start = rows[s][i_time] %}
+                    {% set best_end = rows[s+w-1][i_time] %}
+                  {% endif %}
+                {% endfor %}
+                {{ (best_start ~ ' → ' ~ best_end ~ ' @ ' ~ ('%.2f'|format(best_avg|float)) ~ ' DKK/kWh') if best_avg is not none else '-' }}
+              {% endif %}
+            {% endif %}
+
+      - name: "Energy plan prices"
+        unique_id: energy_plan_prices
+        state: "{{ now() }}"
+        attributes:
+          rows: >-
+            {% set fields = state_attr('sensor.energy_plan','plan_fields') or [] %}
+            {% set rows = state_attr('sensor.energy_plan','plan') or [] %}
+            {% if fields and rows %}
+              {% set i_ts = fields.index('timestamp_local') if 'timestamp_local' in fields else (fields.index('timestamp') if 'timestamp' in fields else none) %}
+              {% set i_price = fields.index('price_buy') if 'price_buy' in fields else none %}
+              {% set i_wait = fields.index('policy_wait_flag') if 'policy_wait_flag' in fields else none %}
+              {% set i_arb = fields.index('arb_gate') if 'arb_gate' in fields else none %}
+              {% set i_margin = fields.index('arb_margin') if 'arb_margin' in fields else none %}
+              {% set result = [] %}
+              {% for row in rows %}
+                {% set ts = row[i_ts] if i_ts is not none else '' %}
+                {% set price = (row[i_price] | float(0)) if i_price is not none else 0 %}
+                {% set wait = row[i_wait] if i_wait is not none else false %}
+                {% set arb = row[i_arb] if i_arb is not none else false %}
+                {% set margin = (row[i_margin] | float(0)) if i_margin is not none else 0 %}
+                {% set _ = result.append({
+                  'timestamp': ts,
+                  'timestamp_local': ts,
+                  'price_dkk_kwh': price,
+                  'wait': wait,
+                  'arbitrage': arb,
+                  'margin_dkk_kwh': margin
+                }) %}
+              {% endfor %}
+              {{ result }}
+            {% else %}
+              []
+            {% endif %}
+

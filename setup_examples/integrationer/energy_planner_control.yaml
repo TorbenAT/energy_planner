@@ -1,0 +1,372 @@
+# Energy Planner Control Package (DESIGN-ONLY)
+#
+# This package introduces helpers, template sensors, scripts, and a disabled-by-default
+# automation to safely apply planner recommendations to your Deye inverter and EV charging.
+#
+# Goals:
+# - Strong isolation: master switch and dry-run mode to prevent unintended changes
+# - Clear monitoring: sensors that reflect the planner's current recommendation
+# - Manual testing: scripts callable from dashboard buttons
+# - Non-intrusive: automation initial_state is OFF; enable explicitly when ready
+
+input_boolean:
+  energy_planner_automation_enabled:
+    name: "Energy Planner: Automatisk Styring"
+    icon: mdi:robot
+    initial: false
+
+  energy_planner_dry_run:
+    name: "Energy Planner: Dry Run Mode"
+    icon: mdi:test-tube
+    initial: true
+
+input_text:
+  energy_planner_last_error:
+    name: "Energy Planner: Sidste fejl"
+    max: 255
+  energy_planner_last_action:
+    name: "Energy Planner: Sidste handling"
+    max: 255
+
+input_select:
+  energy_planner_current_state:
+    name: "Energy Planner Status"
+    options:
+      - "Idle"
+      - "Charging Battery (Grid)"
+      - "Discharging Battery"
+      - "Charging EV"
+    icon: mdi:state-machine
+
+template:
+  - sensor:
+      # Recommended high-level action for "now" based on planner and current prices/SOC
+      - name: "Planner Action Recommended"
+        unique_id: energy_planner_action_recommended
+        icon: mdi:clipboard-check
+        state: >
+          {%- set plan = state_attr('sensor.energy_plan', 'plan') -%}
+          {%- set ev_energy = states('sensor.energy_plan_policy_charge_energy') | float(0) -%}
+          {%- set price_buy = states('sensor.energi_data_service') | float(99) -%}
+          {%- set price_sell = states('sensor.energi_data_service_salg') | float(0) -%}
+          {%- set batt_pct = states('sensor.deye12_sun12k_battery_capacity') | float(0) -%}
+          {%- set batt_min = states('input_number.battery_minimum') | float(20) -%}
+          {%- set batt_max = states('input_number.battery_maximum') | float(95) -%}
+          {%- set prioritize_ev = states('input_boolean.prioriter_ladning_af_bil') | default('off') -%}
+          {%- set ev_start = as_timestamp(states('sensor.energy_planner_ev_next_window_start')) if states('sensor.energy_planner_ev_next_window_start') not in ['unknown','unavailable',''] else none -%}
+          {%- set ev_end = as_timestamp(states('sensor.energy_planner_ev_next_window_end')) if states('sensor.energy_planner_ev_next_window_end') not in ['unknown','unavailable',''] else none -%}
+          {%- set now_ts = now().timestamp() -%}
+          {%- set ev_window_ok = (ev_start is not none and ev_end is not none and now_ts >= ev_start and now_ts <= ev_end) -%}
+
+          {# EV recommendation wins when planner wants energy, priority is on, AND window is active #}
+          {%- if (ev_energy > 0 or prioritize_ev == 'on') and ev_window_ok -%}
+            Charging EV
+          {%- elif price_buy < 1.25 and batt_pct < batt_max -%}
+            Charging Battery (Grid)
+          {%- elif price_sell >= 1.50 and batt_pct > batt_min -%}
+            Discharging Battery
+          {%- else -%}
+            Idle
+          {%- endif -%}
+
+      # Planner target battery net power (approx) for monitoring (W)
+      - name: "Planner Target Battery Power"
+        unique_id: energy_planner_target_battery_power
+        unit_of_measurement: "W"
+        icon: mdi:battery-charging-outline
+        state: >
+          {%- set plan = state_attr('sensor.energy_plan', 'plan') -%}
+          {%- set fields = state_attr('sensor.energy_plan', 'plan_fields') or [] -%}
+          {%- set i_in = fields.index('battery_in') if 'battery_in' in fields else none -%}
+          {%- set i_out = fields.index('battery_out') if 'battery_out' in fields else none -%}
+          {%- if plan and plan | length > 0 and i_in is not none and i_out is not none and i_in < (plan[0]|length) and i_out < (plan[0]|length) -%}
+            {%- set batt_in = plan[0][i_in] | float(0) -%}
+            {%- set batt_out = plan[0][i_out] | float(0) -%}
+            {%- set net_kwh = batt_in - batt_out -%}
+            {{ (net_kwh * 4000) | round(0) }}
+          {%- else -%}
+            unknown
+          {%- endif -%}
+
+      # EV charging intent (on/off) right now
+      - name: "Planner Target EV Charging"
+        unique_id: energy_planner_target_ev
+        icon: mdi:car-electric
+        state: >
+          {%- set ev_energy = states('sensor.energy_plan_policy_charge_energy') | float(0) -%}
+          {{ 'on' if ev_energy > 0.05 else 'off' }}
+
+      # Planner target EV charge percent (UI sync)
+      - name: "Planner Target EV Percent"
+        unique_id: energy_planner_target_ev_percent
+        unit_of_measurement: "%"
+        icon: mdi:battery-90
+        state: >
+          {%- set summary = state_attr('sensor.energy_plan', 'summary') or {} -%}
+          {%- set policy = summary.get('policy', {}) -%}
+          {%- set pct = policy.get('ev_target_pct', 80) -%}
+          {{ pct | round(0) }}
+
+      # Detailed current activity string (multi-flow), direct from plan row
+      - name: "Planner Activity Now"
+        unique_id: energy_planner_activity_now
+        icon: mdi:transmission-tower
+        state: >
+          {%- set plan = state_attr('sensor.energy_plan', 'plan') -%}
+          {%- if plan and plan | length > 0 -%}
+            {{ plan[0][2] }}
+          {%- else -%}
+            Unknown
+          {%- endif -%}
+
+      # EV source classification for the current slot
+      - name: "Planner EV Source"
+        unique_id: energy_planner_ev_source
+        icon: mdi:ev-station
+        state: >
+          {%- set plan = state_attr('sensor.energy_plan', 'plan') -%}
+          {%- set thr = 0.01 -%}
+          {%- if plan and plan | length > 0 -%}
+            {%- set pv_ev = plan[0][10] | float(0) -%}
+            {%- set grid_ev = plan[0][7] | float(0) -%}
+            {%- set batt_ev = plan[0][13] | float(0) -%}
+            {%- if pv_ev > thr and grid_ev <= thr and batt_ev <= thr -%}
+              EV(Solar)
+            {%- elif grid_ev > thr and pv_ev <= thr and batt_ev <= thr -%}
+              EV(Grid)
+            {%- elif batt_ev > thr and pv_ev <= thr and grid_ev <= thr -%}
+              EV(Batt)
+            {%- elif pv_ev > thr or grid_ev > thr or batt_ev > thr -%}
+              EV(Mixed)
+            {%- else -%}
+              EV(Off)
+            {%- endif -%}
+          {%- else -%}
+            EV(Unknown)
+          {%- endif -%}
+
+script:
+  # Apply short window charge via Deye timeslot 1
+  energy_planner_apply_inverter_settings:
+    alias: "Energy Planner: Apply Inverter Settings"
+    mode: queued
+    fields:
+      mode:
+        description: "Charge (Grid) | Discharge | Idle"
+        example: "Charge (Grid)"
+      target_soc:
+        description: "SOC mål (%)"
+        example: 90
+    sequence:
+      - variables:
+          dry: "{{ is_state('input_boolean.energy_planner_dry_run', 'on') }}"
+      - choose:
+          - conditions: "{{ mode == 'Charge (Grid)' }}"
+            sequence:
+              - service: python_script.set_deye_charge_window
+                data:
+                  duration_hours: 1
+                  target_soc: "{{ target_soc | default(states('input_number.battery_maximum')) }}"
+                  charge_enable: true
+                  dry_run: "{{ dry == 'on' }}"
+          - conditions: "{{ mode in ['Discharge', 'Idle'] }}"
+            sequence:
+              - service: python_script.set_deye_charge_window
+                data:
+                  duration_hours: 1
+                  target_soc: "{{ states('input_number.battery_minimum') }}"
+                  charge_enable: false
+                  dry_run: "{{ dry == 'on' }}"
+
+  # EV smart charging request (requires EV to be connected)
+  energy_planner_charge_ev:
+    alias: "Energy Planner: Charge EV if connected"
+    mode: queued
+    fields:
+      amps:
+        description: "Maks strøm (A)"
+        example: 16
+    sequence:
+      - variables:
+          dry: "{{ is_state('input_boolean.energy_planner_dry_run', 'on') }}"
+          status: "{{ states('sensor.easee_status') }}"
+          solar_mode: "{{ is_state('input_boolean.solarcharging', 'on') or is_state('input_boolean.tesla_ble_charge', 'on') }}"
+      - condition: template
+        value_template: "{{ status in ['ready_to_charge','charging','awaiting_start','awaiting'] }}"
+      - choose:
+          - conditions: "{{ dry == 'off' and not solar_mode }}"
+            sequence:
+              # Brug Tesla Smart Charge i stedet for Easee
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.ev_smart_charging_smart_charging_activated
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.tesla_min_amps
+                data:
+                  value: "{{ amps | default(16) }}"
+          - conditions: "{{ dry == 'off' and solar_mode }}"
+            sequence:
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.solarcharging
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.tesla_ble_charge
+          - conditions: "{{ dry == 'on' }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.energy_planner_last_error
+                data:
+                  value: "Dry-Run: EV charge requested (status={{ status }}, solar_mode={{ solar_mode }}, amps={{ amps }})"
+
+  # Set EV target percent from planner, then sync to car
+  energy_planner_set_ev_target:
+    alias: "Energy Planner: Set EV Target Percent"
+    mode: queued
+    sequence:
+      - variables:
+          dry: "{{ is_state('input_boolean.energy_planner_dry_run', 'on') }}"
+          target_pct: "{{ states('sensor.planner_target_ev_percent') | int(80) }}"
+      - choose:
+          - conditions: "{{ dry == 'off' }}"
+            sequence:
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.tesla_charge_procent_limit
+                data:
+                  value: "{{ target_pct }}"
+              - service: script.tesla_charge_sync_run
+          - conditions: "{{ dry == 'on' }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.energy_planner_last_error
+                data:
+                  value: "Dry-Run: Set EV target to {{ target_pct }}% (no sync)"
+
+automation:
+  - alias: "Energy Planner: Execute Recommended Action"
+    id: energy_planner_execute_recommended_action
+    description: "Runs every 5 min or on recommendation change; initial OFF."
+    initial_state: false
+    mode: single
+    trigger:
+      - platform: time_pattern
+        minutes: "/5"
+      - platform: state
+        entity_id: sensor.planner_action_recommended
+    condition:
+      - condition: state
+        entity_id: input_boolean.energy_planner_automation_enabled
+        state: "on"
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: input_select.energy_control_mode
+            state: "Planner (Aktiv)"
+          - condition: state
+            entity_id: input_select.energy_control_mode
+            state: "Planner (Dry Run)"
+    action:
+      - variables:
+          action: "{{ states('sensor.planner_action_recommended') }}"
+          dry: "{{ is_state('input_boolean.energy_planner_dry_run', 'on') }}"
+          battery_power: "{{ states('sensor.planner_target_battery_power') | float(0) }}"
+      
+      - choose:
+          # Detect combined EV+Battery charging
+          - conditions: >
+              {{ action == 'Charging EV' and battery_power > 100 }}
+            sequence:
+              - service: script.energy_planner_apply_inverter_settings
+                data:
+                  mode: "Charge (Grid)"
+              - service: script.energy_planner_charge_ev
+                data:
+                  amps: 16
+              - service: input_select.select_option
+                target:
+                  entity_id: input_select.energy_system_mode
+                data:
+                  option: "EV+Batteri Ladning (Grid)"
+          
+          - conditions: "{{ action == 'Charging Battery (Grid)' }}"
+            sequence:
+              - service: script.energy_planner_apply_inverter_settings
+                data:
+                  mode: "Charge (Grid)"
+              - service: input_select.select_option
+                target:
+                  entity_id: input_select.energy_system_mode
+                data:
+                  option: "Lad Batteri (Grid)"
+          
+          - conditions: "{{ action == 'Discharging Battery' }}"
+            sequence:
+              - service: script.energy_planner_apply_inverter_settings
+                data:
+                  mode: "Discharge"
+              - service: input_select.select_option
+                target:
+                  entity_id: input_select.energy_system_mode
+                data:
+                  option: "Selvforbrug"
+          
+          - conditions: "{{ action == 'Charging EV' }}"
+            sequence:
+              - service: script.energy_planner_charge_ev
+                data:
+                  amps: 16
+              - service: script.energy_planner_set_ev_target
+              - service: input_select.select_option
+                target:
+                  entity_id: input_select.energy_system_mode
+                data:
+                  option: "EV Ladning (Grid)"
+          
+          - conditions: "{{ action == 'Idle' }}"
+            sequence:
+              - service: input_select.select_option
+                target:
+                  entity_id: input_select.energy_system_mode
+                data:
+                  option: "Selvforbrug"
+      
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.energy_planner_last_action
+        data:
+          value: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }} → {{ action }}"
+      
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.energy_system_mode_changed
+        data:
+          value: "{{ now().strftime('%Y-%m-%d %H:%M') }} → {{ states('input_select.energy_system_mode') }} (Planner)"
+      
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.energy_planner_current_state
+        data:
+          option: "{{ action }}"
+
+  - alias: "Energy Planner: Auto Update Plan"
+    id: energy_planner_auto_update
+    description: "Opdaterer planen automatisk hver time og ved prisændringer"
+    initial_state: true
+    mode: single
+    trigger:
+      - platform: time_pattern
+        minutes: "5"
+        id: hourly
+      - platform: state
+        entity_id: sensor.energi_data_service
+        id: price_update
+      - platform: state
+        entity_id: sensor.solcast_pv_forecast_forecast_today
+        id: solcast_update
+    action:
+      - service: energy_planner.update_plan
+        data: {}

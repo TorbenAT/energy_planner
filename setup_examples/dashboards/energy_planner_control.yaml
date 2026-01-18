@@ -1,0 +1,91 @@
+# Energy Planner Control Dashboard (Design / Test)
+# Add as a Lovelace view to monitor and manually test control scripts
+
+views:
+  - title: Planner Control
+    path: planner-control
+    cards:
+      - type: entities
+        title: System Status
+        show_header_toggle: false
+        entities:
+          - entity: input_boolean.energy_planner_automation_enabled
+            name: "🔴 MASTER SWITCH: Automatisk Styring"
+          - entity: input_boolean.energy_planner_dry_run
+            name: "🟡 Dry Run Mode (Log Only)"
+          - entity: input_select.energy_planner_current_state
+            name: Aktuel tilstand
+          - entity: input_text.energy_planner_last_error
+            name: Sidste fejl / besked
+          - entity: sensor.energy_plan
+            name: Planner Status
+          - entity: sensor.planner_action_recommended
+            name: Anbefalet handling (nu)
+
+      - type: grid
+        title: Batteri & EV Overblik
+        square: false
+        columns: 2
+        cards:
+          - type: entities
+            title: Batteri Styring
+            entities:
+              - type: section
+                label: Plannerens Ønske
+              - entity: sensor.planner_target_battery_power
+                name: Target effekt (W)
+              - entity: sensor.planner_action_recommended
+                name: Target mode
+              - type: section
+                label: Deye (aktuel)
+              - entity: sensor.deye12_sun12k_battery_output_power
+                name: Aktuel effekt
+              - entity: switch.deye12_sun12k_time_point_1_charge_enable
+                name: Grid Charge (Slot 1)
+              - entity: number.deye12_sun12k_time_point_1_capacity
+                name: Target SOC (Slot 1)
+
+          - type: entities
+            title: EV Styring
+            entities:
+              - type: section
+                label: Plannerens Ønske
+              - entity: sensor.planner_target_ev_charging
+                name: Skal lade?
+              - type: section
+                label: EV Status
+              - entity: sensor.easee_status
+                name: Easee status
+              - entity: switch.ev_smart_charging_smart_charging_activated
+                name: Smart Charging
+
+      - type: entities
+        title: Manuel Test af Handlinger
+        entities:
+          - type: section
+            label: "ADVARSEL: Dry-Run ON anbefales ved test"
+          - type: button
+            name: "TEST: Tving Opladning (Grid Charge ON)"
+            icon: mdi:flash
+            tap_action:
+              action: call-service
+              service: script.energy_planner_apply_inverter_settings
+              service_data:
+                mode: "Charge (Grid)"
+                target_soc: 90
+          - type: button
+            name: "TEST: Normal Drift (Grid Charge OFF)"
+            icon: mdi:battery-outline
+            tap_action:
+              action: call-service
+              service: script.energy_planner_apply_inverter_settings
+              service_data:
+                mode: "Discharge"
+          - type: button
+            name: "TEST: EV Lad (hvis tilsluttet)"
+            icon: mdi:car-electric
+            tap_action:
+              action: call-service
+              service: script.energy_planner_charge_ev
+              service_data:
+                amps: 10

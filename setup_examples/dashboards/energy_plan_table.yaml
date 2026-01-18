@@ -1,0 +1,186 @@
+# Energy Plan Excel-Style Tabel
+# Installer flex-table-card via HACS først:
+# https://github.com/custom-cards/flex-table-card
+
+type: vertical-stack
+cards:
+  # Header med status og KPIs
+  - type: markdown
+    content: |
+      ## 📊 Energy Plan - Detaljeret Oversigt
+      **Status:** {{ states('sensor.energy_plan') }}  
+      **Opdateret:** {{ state_attr('sensor.energy_plan', 'generated_at_local_display') }}
+      
+      **KPIs (næste 48t):**
+      - Grid køb: {{ state_attr('sensor.energy_plan', 'grid_import_kwh') }} kWh
+      - Grid salg: {{ state_attr('sensor.energy_plan', 'grid_export_kwh') }} kWh
+      - Hus forbrug: {{ state_attr('sensor.energy_plan', 'house_consumption_kwh') }} kWh
+      - EV opladning: {{ state_attr('sensor.energy_plan', 'ev_energy_kwh') }} kWh
+      - Netto omkostning: {{ state_attr('sensor.energy_plan', 'net_dkk') }} DKK
+      
+      **Billigste blok (6 slots):** {{ state_attr('sensor.energy_plan', 'cheapest_block') }}
+
+  # Excel-style tabel med alle data
+  - type: custom:flex-table-card
+    title: "Energy Plan - Detaljeret Tabel (næste 48 timer)"
+    sort_by: timestamp+
+    max_rows: 192
+    strict: true
+    entities:
+      include: sensor.energy_plan
+    columns:
+      - name: "Tid"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('timestamp_local');
+          if(idx === -1) return '';
+          const ts = x.plan[row][idx];
+          if(!ts) return '';
+          // Format: "15 Nov 14:30"
+          const d = new Date(ts);
+          return d.toLocaleString('da-DK', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'});
+        align: left
+
+      - name: "Handling"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('activity');
+          if(idx === -1) return '-';
+          const act = x.plan[row][idx];
+          return act || '-';
+        align: left
+
+      - name: "Net køb"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('g_buy');
+          if(idx === -1) return '0';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(3) + ' kWh';
+        align: right
+
+      - name: "Net salg"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('g_sell');
+          if(idx === -1) return '0';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(3) + ' kWh';
+        align: right
+
+      - name: "Grid→Batt"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('grid_to_batt');
+          if(idx === -1) return '0';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(3) + ' kWh';
+        align: right
+
+      - name: "PV→Batt"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('prod_to_batt');
+          if(idx === -1) return '0';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(3) + ' kWh';
+        align: right
+
+      - name: "Batt→Hus"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('batt_to_house');
+          if(idx === -1) return '0';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(3) + ' kWh';
+        align: right
+
+      - name: "Batt→Salg"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('batt_to_sell');
+          if(idx === -1) return '0';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(3) + ' kWh';
+        align: right
+
+      - name: "Købspris"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('price_buy');
+          if(idx === -1) return '-';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(2) + ' DKK/kWh';
+        align: right
+
+      - name: "Salgspris"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('price_sell');
+          if(idx === -1) return '-';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(2) + ' DKK/kWh';
+        align: right
+
+      - name: "Grid-køb"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('grid_cost');
+          if(idx === -1) return '0';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(2) + ' DKK';
+        align: right
+
+      - name: "Grid-salg"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('grid_revenue_effective');
+          if(idx === -1) return '0';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(2) + ' DKK';
+        align: right
+
+      - name: "Batterislid"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const idx = x.plan_fields.indexOf('battery_cycle_cost');
+          if(idx === -1) return '0';
+          const val = parseFloat(x.plan[row][idx] || 0);
+          return val.toFixed(2) + ' DKK';
+        align: right
+
+      - name: "Netto"
+        data: plan
+        modify: |
+          if(typeof x === 'undefined') return '';
+          const cost_idx = x.plan_fields.indexOf('grid_cost');
+          const rev_idx = x.plan_fields.indexOf('grid_revenue_effective');
+          const cycle_idx = x.plan_fields.indexOf('battery_cycle_cost');
+          const ev_idx = x.plan_fields.indexOf('ev_bonus');
+          const cost = parseFloat(x.plan[row][cost_idx] || 0);
+          const rev = parseFloat(x.plan[row][rev_idx] || 0);
+          const cycle = parseFloat(x.plan[row][cycle_idx] || 0);
+          const ev_bonus = parseFloat(x.plan[row][ev_idx] || 0);
+          const net = cost - rev + cycle - ev_bonus;
+          return net.toFixed(2) + ' DKK';
+        align: right
+
+    css:
+      table+: 'font-size: 11px; border-collapse: collapse;'
+      tbody tr: 'border-bottom: 1px solid #e0e0e0;'
+      tbody tr td: 'padding: 4px 8px;'
+      thead tr th: 'background-color: #f5f5f5; font-weight: bold; padding: 8px; border-bottom: 2px solid #ccc;'
+      tbody tr:hover: 'background-color: #f0f8ff;'

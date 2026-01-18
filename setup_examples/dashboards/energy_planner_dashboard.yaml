@@ -1,0 +1,1015 @@
+title: Energy Planner
+views:
+  - title: Optimering
+    path: optimering
+    icon: mdi:solar-power
+    panel: false
+    badges: []
+    cards:
+      - type: button
+        entity: script.energy_planner_update_now
+        name: "🔄 Opdater Plan"
+        icon: mdi:solar-power-variant
+        show_name: true
+        show_icon: true
+        tap_action:
+          action: call-service
+          service: script.turn_on
+          service_data:
+            entity_id: script.energy_planner_update_now
+      - type: markdown
+        content: >-
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set status = states('sensor.energy_plan') %}
+          <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 16px; padding: 12px; background: rgba(33, 150, 243, 0.1); border-radius: 8px;">
+            <div style="font-size: 36px;">📊</div>
+            <div>
+              <div style="font-size: 20px; font-weight: bold; color: #2196F3;">{{ status | title }}</div>
+              <div style="font-size: 12px; color: #999;">Optimeringsplan</div>
+            </div>
+          </div>
+          {% if summary and summary.energy_totals %}
+          {% set grid_buy = summary.energy_totals.grid_import_kwh %}
+          {% set grid_sell = summary.energy_totals.grid_export_kwh %}
+          {% set ev_kwh = summary.energy_totals.ev_charge_kwh %}
+          {% set house_kwh = summary.energy_totals.house_consumption_kwh %}
+          {% set batt_kwh = grid_buy - ev_kwh - house_kwh %}
+          
+          **🏠 Husforbrug:** {{ '%.1f' | format(house_kwh) }} kWh<br>
+          **🚗 EV ladning:** {{ '%.1f' | format(ev_kwh) }} kWh<br>
+          **🔋 Batteri:** {{ '%.1f' | format(batt_kwh) }} kWh
+          {% else %}
+          *Data indlæses...*
+          {% endif %}
+      - type: markdown
+        title: "⚡ EV Opladning"
+        content: >-
+          {% set ev_next_charge = state_attr('sensor.energy_plan', 'ev_next_charge_time') %}
+          {% set ev_needed_by = state_attr('sensor.energy_plan', 'ev_connection_needed_by') %}
+          {% set ev_total_kwh = state_attr('sensor.energy_plan', 'ev_total_planned_kwh') | float(0) %}
+          {% set ev_connected = state_attr('sensor.energy_plan', 'ev_connected') %}
+          {% set ev_sessions = state_attr('sensor.energy_plan', 'ev_charging_sessions') or [] %}
+          
+          {% if ev_total_kwh > 0.1 %}
+            {% if ev_needed_by %}
+              {% set needed_dt = as_datetime(ev_needed_by) %}
+              {% set now_dt = now() %}
+              {% if needed_dt and needed_dt > now_dt %}
+                {% set hours_until = ((needed_dt.timestamp() - now_dt.timestamp()) / 3600) | round(1) %}
+                **🔌 Tilslut senest:** {{ needed_dt.strftime('%d/%m %H:%M') }} (om {{ hours_until }} timer)
+              {% elif needed_dt %}
+                **⚠️ TILSLUT NU!** Ladning skulle starte {{ needed_dt.strftime('%H:%M') }}
+              {% endif %}
+            {% endif %}
+            
+            {% if not ev_connected %}
+              
+              **🚗 ADVARSEL: Bil er IKKE tilsluttet!**
+            {% else %}
+              
+              **✅ Bil tilsluttet og klar**
+            {% endif %}
+            
+            **Total planlagt:** {{ '%.1f' | format(ev_total_kwh) }} kWh
+            
+            {% if ev_sessions %}
+              **📅 Ladesessioner:**<br>
+              {% for session in ev_sessions[:4] %}
+              {% set start_dt = as_datetime(session.start) %}
+              {% set session_kwh = session.kwh | float(0) %}
+              {% set session_price = session.avg_price | float(0) %}
+              {% set session_cost = session_kwh * session_price %}
+              - {{ start_dt.strftime('%H:%M') if start_dt else 'N/A' }}: {{ '%.1f' | format(session_kwh) }} kWh ({{ '%.0f' | format(session_cost) }})<br>
+              {% endfor %}
+            {% endif %}
+          {% else %}
+            **ℹ️ Ingen EV-ladning planlagt**
+            
+            Mulige årsager:
+            - Bil disconnected
+            - Batteriet allerede fuldt
+            - Ugeskema krav = 0 kWh
+          {% endif %}
+      - type: entities
+        title: "[7] Planindstillinger"
+        show_header_toggle: false
+        entities:
+          - type: section
+            label: Strategikontrol
+          - entity: input_select.energy_planner_profile
+            name: Plan profil
+          - entity: input_number.energy_planner_cheap_price_threshold_dkk
+            name: Billig pris tærskel
+          - entity: input_number.energy_planner_optimistic_charging_pct
+            name: Optimistisk opladning (%)
+          - entity: input_boolean.energy_planner_multi_windows
+            name: Tillad flere EV-vinduer
+          - type: section
+            label: EV ugeskema (afgang %)
+          - entity: input_number.energy_planner_ev_departure_mon_pct
+            name: Mandag
+          - entity: input_number.energy_planner_ev_departure_tue_pct
+            name: Tirsdag
+          - entity: input_number.energy_planner_ev_departure_wed_pct
+            name: Onsdag
+          - entity: input_number.energy_planner_ev_departure_thu_pct
+            name: Torsdag
+          - entity: input_number.energy_planner_ev_departure_fri_pct
+            name: Fredag
+          - entity: input_number.energy_planner_ev_departure_sat_pct
+            name: Lørdag
+          - entity: input_number.energy_planner_ev_departure_sun_pct
+            name: Søndag
+          - type: section
+            label: EV ugeskøn (kWh/dag)
+          - entity: input_number.energy_planner_ev_week_mon_kwh
+            name: Mandag (kWh)
+          - entity: input_number.energy_planner_ev_week_tue_kwh
+            name: Tirsdag (kWh)
+          - entity: input_number.energy_planner_ev_week_wed_kwh
+            name: Onsdag (kWh)
+          - entity: input_number.energy_planner_ev_week_thu_kwh
+            name: Torsdag (kWh)
+          - entity: input_number.energy_planner_ev_week_fri_kwh
+            name: Fredag (kWh)
+          - entity: input_number.energy_planner_ev_week_sat_kwh
+            name: Lørdag (kWh)
+          - entity: input_number.energy_planner_ev_week_sun_kwh
+            name: Søndag (kWh)
+          - entity: sensor.energy_planner_ev_week_today_kwh
+            name: Ugeskøn i dag
+          - type: section
+            label: EV tilstede ugeskema (tidsvinduer)
+          - entity: input_datetime.energy_planner_ev_start_mon
+            name: Mandag start
+          - entity: input_datetime.energy_planner_ev_end_mon
+            name: Mandag slut
+          - entity: input_datetime.energy_planner_ev_start_tue
+            name: Tirsdag start
+          - entity: input_datetime.energy_planner_ev_end_tue
+            name: Tirsdag slut
+          - entity: input_datetime.energy_planner_ev_start_wed
+            name: Onsdag start
+          - entity: input_datetime.energy_planner_ev_end_wed
+            name: Onsdag slut
+          - entity: input_datetime.energy_planner_ev_start_thu
+            name: Torsdag start
+          - entity: input_datetime.energy_planner_ev_end_thu
+            name: Torsdag slut
+          - entity: input_datetime.energy_planner_ev_start_fri
+            name: Fredag start
+          - entity: input_datetime.energy_planner_ev_end_fri
+            name: Fredag slut
+          - entity: input_datetime.energy_planner_ev_start_sat
+            name: Lørdag start
+          - entity: input_datetime.energy_planner_ev_end_sat
+            name: Lørdag slut
+          - entity: input_datetime.energy_planner_ev_start_sun
+            name: Søndag start
+          - entity: input_datetime.energy_planner_ev_end_sun
+            name: Søndag slut
+          - entity: sensor.energy_planner_ev_next_window_start
+            name: Næste EV-vindue start
+          - entity: sensor.energy_planner_ev_next_window_end
+            name: Næste EV-vindue slut
+      - type: markdown
+        title: "[9] EV Ladeplan"
+        content: >-
+          {% set plan = state_attr('sensor.energy_plan', 'plan') or [] %}
+          {% set ev_status = states('sensor.easee_status') %}
+          {% set summary = state_attr('sensor.energy_plan', 'summary') %}
+          {% set total_ev = summary.ev.required_kwh if summary and summary.ev else 0 %}
+          
+          **Status:** {{ ev_status | title }}
+          {% if total_ev > 0 %}
+          **Planlagt ladning:** {{ '%.1f' | format(total_ev) }} kWh
+          {% else %}
+          **⚠️ Ingen ladning planlagt** (bil disconnected)
+          {% endif %}
+          
+          {% set ev_slots = [] %}
+          {% for slot in plan[:96] %}
+            {% if slot[10] > 0.1 %}
+              {% set time_str = slot[0].split('T') %}
+              {% set date = time_str[0][5:] if time_str|length > 0 else '' %}
+              {% set time = time_str[1][:5] if time_str|length > 1 else '' %}
+              {% set ev_slots = ev_slots + [{'date': date, 'time': time, 'price': slot[1], 'ev_kwh': slot[10]}] %}
+            {% endif %}
+          {% endfor %}
+          
+          {% if ev_slots %}
+          
+          **📅 Ladeplan ({{ ev_slots | length }} timer):**
+          
+          | Dato | Tid | Pris | Energi |
+          |------|-----|------|--------|
+          {% for s in ev_slots %}
+          | {{ s.date }} | {{ s.time }} | {{ '%.2f' | format(s.price) }} | {{ '%.1f' | format(s.ev_kwh) }} kWh |
+          {% endfor %}
+
+          **Total:** {{ '%.1f' | format(ev_slots | sum(attribute='ev_kwh')) }} kWh
+          **Gns. pris:** {{ '%.2f' | format((ev_slots | sum(attribute='price') * ev_slots[0].ev_kwh) / (ev_slots | sum(attribute='ev_kwh'))) }}
+          {% endif %}
+      - type: markdown
+        title: "[10] Arbitrage & Vent"
+        content: >-
+          {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+          {% set r = state_attr('sensor.energy_plan','plan_today') or [] %}
+          {% set wait_slots = state_attr('sensor.energy_plan_kpis','wait_slots') | int(0) %}
+          {% set arb_ok = state_attr('sensor.energy_plan_kpis','arb_ok') | int(0) %}
+          {% set arb_blocked = state_attr('sensor.energy_plan_kpis','arb_blocked') | int(0) %}
+          <div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:20px; padding-bottom:20px; border-bottom:2px solid #E0E0E0;">
+            <div style="flex:1 1 150px; text-align:center; padding:12px; background:rgba(33,150,243,0.05); border-radius:8px; border:1px solid rgba(33,150,243,0.2);">
+              <div style="font-size:12px; color:#666666; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Total Slots</div>
+              <div style="font-size:24px; font-weight:bold; color:#1976D2;">{{ r|count }}</div>
+            </div>
+            <div style="flex:1 1 150px; text-align:center; padding:12px; background:rgba(33,150,243,0.05); border-radius:8px; border:1px solid rgba(33,150,243,0.2);">
+              <div style="font-size:12px; color:#666666; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Vent (slots)</div>
+              <div style="font-size:24px; font-weight:bold; color:#1976D2;">{{ wait_slots }}</div>
+            </div>
+            <div style="flex:1 1 150px; text-align:center; padding:12px; background:rgba(76,175,80,0.1); border-radius:8px; border:1px solid rgba(76,175,80,0.3);">
+              <div style="font-size:12px; color:#2E7D32; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Arbitrage OK</div>
+              <div style="font-size:24px; font-weight:bold; color:#2E7D32;">{{ arb_ok }}</div>
+            </div>
+            <div style="flex:1 1 150px; text-align:center; padding:12px; background:rgba(211,47,47,0.1); border-radius:8px; border:1px solid rgba(211,47,47,0.3);">
+              <div style="font-size:12px; color:#D32F2F; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Blokeret</div>
+              <div style="font-size:24px; font-weight:bold; color:#D32F2F;">{{ arb_blocked }}</div>
+            </div>
+          </div>
+          {% set limit = 10 %}
+          {% set i_t = f.index('timestamp_local') if 'timestamp_local' in f else None %}
+          {% set i_p = f.index('price_buy') if 'price_buy' in f else None %}
+          {% set i_w = f.index('policy_wait_flag') if 'policy_wait_flag' in f else None %}
+          {% set i_g = f.index('arb_gate') if 'arb_gate' in f else None %}
+          {% set i_m = f.index('arb_margin') if 'arb_margin' in f else None %}
+          {% set ns = namespace(rows=[]) %}
+          {% for row in r[:limit] %}
+            {% set bg = '#F5F9FF' if loop.index0 % 2 == 0 else 'transparent' %}
+            {% set ts = row[i_t] if i_t is not none else '-' %}
+            {% set price = '%.2f' | format((row[i_p] | float(0)) if i_p is not none else 0) %}
+            {% set wait = row[i_w] if i_w is not none and row[i_w] else '' %}
+            {% set gate = row[i_g] if i_g is not none and row[i_g] else '' %}
+            {% set margin = '%.2f' | format((row[i_m] | float(0)) if i_m is not none else 0) %}
+            {% set wait_html = wait and ('<span style="background:#FFF9C4; color:#F57F17; padding:2px 6px; border-radius:3px; font-weight:bold;">' ~ wait ~ '</span>') or '-' %}
+            {% set gate_html = gate and ('<span style="background:#C8E6C9; color:#2E7D32; padding:2px 6px; border-radius:3px; font-weight:bold;">' ~ gate ~ '</span>') or '-' %}
+            {% set row_html = '<tr style="background:' ~ bg ~ ';">' ~
+              '<td style="padding:10px 12px; border:1px solid #E0E0E0; font-weight:600; color:#1565C0;">' ~ ts ~ '</td>' ~
+              '<td style="padding:10px 12px; border:1px solid #E0E0E0; text-align:right; color:#D32F2F; font-weight:bold;">' ~ price ~ '</td>' ~
+              '<td style="padding:10px 12px; border:1px solid #E0E0E0; text-align:center;">' ~ wait_html ~ '</td>' ~
+              '<td style="padding:10px 12px; border:1px solid #E0E0E0; text-align:center;">' ~ gate_html ~ '</td>' ~
+              '<td style="padding:10px 12px; border:1px solid #E0E0E0; text-align:right; color:#4CAF50; font-weight:bold;">' ~ margin ~ '</td>' ~
+              '</tr>' %}
+            {% set ns.rows = ns.rows + [row_html] %}
+          {% endfor %}
+          <table style="width:100%; border-collapse:collapse; font-size:14px; margin-top:16px;">
+          <thead>
+          <tr>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Tid</th>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Pris</th>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Vent</th>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Arbitrage</th>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Margin</th>
+          </tr>
+          </thead>
+          <tbody>
+          {{ ns.rows | join('\n') | safe }}
+          </tbody>
+          </table>
+
+      - type: markdown
+        title: "[11] Husforbrug Fordeling"
+        content: >-
+          {% set r = state_attr('sensor.energy_plan','plan_today') or [] %}
+          {% set limit = 24 %}
+          <table style="width:100%; border-collapse:collapse; font-size:14px; margin-top:16px;">
+          <thead>
+          <tr>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Tid</th>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Forbrug (kWh)</th>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Fra Grid</th>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Fra Batteri</th>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Fra PV</th>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Total</th>
+          <th style="padding:12px; text-align:left; font-weight:600; background:linear-gradient(135deg, #1976D2 0%, #1565C0 100%); color:#FFFFFF; border:1px solid #0D47A1;">Balance</th>
+          </tr>
+          </thead>
+          <tbody>
+          {% for row in r[:limit] %}
+          {% set bg = '#F5F9FF' if loop.index0 % 2 == 0 else 'transparent' %}
+          {% set ts = (row[1] or '')|string %}
+          {% set time_parts = ts.split('T') %}
+          {% set time_only = time_parts[1].split('+')[0] if time_parts|length > 1 else ts %}
+          {% set hhmm = time_only[0:5] %}
+          {% set from_grid = row[36] | float(0) %}
+          {% set from_batt = row[37] | float(0) %}
+          {% set from_pv = row[38] | float(0) %}
+          {% set total = from_grid + from_batt + from_pv %}
+          {% set consumption = total %}
+          {% set balance = total - consumption %}
+          <tr style="background:{{ bg }};">
+          <td style="padding:10px 12px; border:1px solid #E0E0E0; font-weight:600; color:#1565C0;">{{ hhmm }}</td>
+          <td style="padding:10px 12px; border:1px solid #E0E0E0; text-align:right;">{{ '%.3f'|format(consumption) }}</td>
+          <td style="padding:10px 12px; border:1px solid #E0E0E0; text-align:right; color:#D32F2F;">{{ '%.3f'|format(from_grid) }}</td>
+          <td style="padding:10px 12px; border:1px solid #E0E0E0; text-align:right; color:#FF9800;">{{ '%.3f'|format(from_batt) }}</td>
+          <td style="padding:10px 12px; border:1px solid #E0E0E0; text-align:right; color:#4CAF50;">{{ '%.3f'|format(from_pv) }}</td>
+          <td style="padding:10px 12px; border:1px solid #E0E0E0; text-align:right; font-weight:bold;">{{ '%.3f'|format(total) }}</td>
+          <td style="padding:10px 12px; border:1px solid #E0E0E0; text-align:right; {% if balance|abs > 0.01 %}color:#D32F2F; font-weight:bold;{% endif %}">{{ '%.3f'|format(balance) }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+          </table>
+  
+  - title: Mode Control
+    path: mode-control
+    icon: mdi:state-machine
+    panel: false
+    badges: []
+    cards:
+      - type: entities
+        title: 🎛️ Energy System Kontrol
+        entities:
+          - entity: input_select.energy_control_mode
+            name: "Hvem Styrer Systemet"
+          - entity: input_select.energy_system_mode
+            name: "Aktiv Mode"
+          - entity: input_boolean.energy_planner_automation_enabled
+            name: "Planner Automation"
+          - entity: input_text.energy_system_mode_changed
+            name: "Sidste Mode Ændring"
+          - entity: input_text.energy_planner_last_action
+            name: "Planner Sidste Handling"
+      
+      - type: markdown
+        title: 📅 Planlagt Aktivitet (næste 24t)
+        content: |
+          {% set plan = state_attr('sensor.energy_plan', 'plan') %}
+          {% set fields = state_attr('sensor.energy_plan', 'plan_fields') %}
+          {% set mode_idx = fields.index('recommended_mode') if (fields is not none and 'recommended_mode' in fields) else none %}
+          
+          | Tid | Mode | Batteri | EV | Net |
+          |-----|------|---------|----|----- |
+          {% if plan and mode_idx is not none %}
+          {% for row in plan[:24] %}
+            {% set ts = row[1] %}
+            {% set time_parts = ts.split('T') %}
+            {% set time_only = time_parts[1].split('+')[0] if time_parts|length > 1 else ts %}
+            {% set hhmm = time_only[0:5] %}
+            {% set mode = row[mode_idx] if row[mode_idx] is not none else 'Selvforbrug' %}
+            {% set batt_soc = row[17] | round(0) if row[17] is not none else 0 %}
+            {% set ev_kwh = row[21] | round(1) if row[21] is not none else 0 %}
+            {% set grid = ((row[3] | float(0)) - (row[4] | float(0))) | round(1) %}
+            {% if mode is not none and 'Batt(Grid)' in mode and 'EV(Grid)' in mode %}
+              {% set icon = '⚡🚗' %}
+            {% elif mode is not none and 'EV(Grid)' in mode %}
+              {% set icon = '🚗' %}
+            {% elif mode is not none and 'Batt(Grid)' in mode %}
+              {% set icon = '⚡' %}
+            {% elif mode is not none and 'EV(Solar)' in mode %}
+              {% set icon = '☀️🚗' %}
+            {% elif mode is not none and 'Sælg' in mode %}
+              {% set icon = '💰' %}
+            {% elif mode is not none and 'Batt→Salg' in mode %}
+              {% set icon = '🔋💰' %}
+            {% else %}
+              {% set icon = '🏠' %}
+            {% endif %}
+          | {{ hhmm }} | {{ icon }} {{ mode }} | {{ batt_soc }}% | {{ ev_kwh }} | {{ grid }} kW |
+          {% endfor %}
+          {% else %}
+            | - | Ingen plan data | - | - | - |
+          {% endif %}
+          
+          ---
+          **Emoji nøgle:** 🏠 Selvforbrug · ⚡ Batteri lades · 🚗 EV lades · ☀️ Solar · 💰 Salg · 🔋 Batteri salg
+      
+      - type: conditional
+        conditions:
+          - entity: input_select.energy_control_mode
+            state: "Manuel"
+        card:
+          type: vertical-stack
+          cards:
+            - type: markdown
+              content: |
+                ### 🎮 Manuelle Kontroller
+                Klik på knapperne nedenfor for at aktivere en specifik mode:
+            - type: horizontal-stack
+              cards:
+                - type: button
+                  name: Selvforbrug
+                  icon: mdi:home-battery-outline
+                  tap_action:
+                    action: call-service
+                    service: script.deye_self_use
+                - type: button
+                  name: Sælg Overskud
+                  icon: mdi:solar-power
+                  tap_action:
+                    action: call-service
+                    service: script.deye_prioritize_sell
+                - type: button
+                  name: Lad Batteri
+                  icon: mdi:battery-charging-80
+                  tap_action:
+                    action: call-service
+                    service: script.deye_charge_battery_buy_to_house
+            - type: horizontal-stack
+              cards:
+                - type: button
+                  name: EV (Grid)
+                  icon: mdi:ev-station
+                  tap_action:
+                    action: call-service
+                    service: switch.turn_on
+                    target:
+                      entity_id: switch.ev_smart_charging_smart_charging_activated
+                - type: button
+                  name: EV (Solar)
+                  icon: mdi:solar-panel
+                  tap_action:
+                    action: call-service
+                    service: input_boolean.turn_on
+                    target:
+                      entity_id: input_boolean.solarcharging
+                - type: button
+                  name: Initialize Time Points
+                  icon: mdi:clock-time-eight
+                  tap_action:
+                    action: call-service
+                    service: script.initialize_time_points
+      
+      - type: entities
+        title: 🔋 Batteri & EV Status
+        entities:
+          - entity: input_number.battery_minimum
+            name: "Minimum Reserve"
+          - entity: input_number.battery_maximum
+            name: "Maximum Mål"
+          - entity: input_number.deye12_sun12k_battery_charge_watts
+            name: "Ladehastighed (W)"
+          - entity: sensor.deye12_sun12k_battery_capacity
+            name: "Batteri SoC"
+          - entity: input_boolean.time_points_manual_override
+            name: "Time Points Låst"
+  
+  - title: Excel Tabel (24 timer)
+    path: excel-table
+    icon: mdi:table-large
+    panel: true
+    badges: []
+    cards:
+      - type: markdown
+        title: "Version 1: Excel Classic (24 timer - fuld bredde)"
+        card_mod:
+          style: |
+            ha-card {
+              background: transparent !important;
+              overflow: auto !important;
+            }
+            ha-markdown-element table {
+              border-collapse: collapse !important;
+              border: 2px solid #4a4a4a !important;
+              width: 100% !important;
+              font-size: 11px !important;
+            }
+            ha-markdown-element th {
+              border: 1px solid #4a4a4a !important;
+              background: #2b2b2b !important;
+              color: #e0e0e0 !important;
+              padding: 6px 8px !important;
+              position: sticky !important;
+              top: 0 !important;
+              font-weight: 600 !important;
+              text-align: left !important;
+              white-space: nowrap !important;
+            }
+            ha-markdown-element th:nth-child(n+3) {
+              text-align: right !important;
+            }
+            ha-markdown-element td {
+              border: 1px solid #4a4a4a !important;
+              padding: 4px 6px !important;
+              color: #e0e0e0 !important;
+            }
+            ha-markdown-element td:nth-child(1) {
+              font-weight: 600 !important;
+              white-space: nowrap !important;
+            }
+            ha-markdown-element td:nth-child(n+3) {
+              text-align: right !important;
+              font-variant-numeric: tabular-nums !important;
+            }
+            ha-markdown-element td:nth-child(20) {
+              color: #ff6b6b !important;
+              font-weight: 600 !important;
+            }
+            ha-markdown-element td:nth-child(21) {
+              color: #51cf66 !important;
+              font-weight: 600 !important;
+            }
+            ha-markdown-element tr:nth-child(even) {
+              background: #1e1e1e !important;
+            }
+            ha-markdown-element tr:nth-child(odd) {
+              background: #2a2a2a !important;
+            }
+            ha-markdown-element tr:hover {
+              background: #3a3a3a !important;
+            }
+        content: >-
+          {% set rows_today = state_attr('sensor.energy_plan', 'plan_today') or [] %}
+          {% set rows_tomorrow = state_attr('sensor.energy_plan', 'plan_tomorrow') or [] %}
+          {% set rows_day3 = state_attr('sensor.energy_plan', 'plan_day3') or [] %}
+          {% set rows = rows_today + rows_tomorrow + rows_day3 %}
+          {% set db_time = states('sensor.energy_plan_db_updated') %}
+          {% set timestamp_display = db_time if db_time not in ['unknown','unavailable',''] else state_attr('sensor.energy_plan','updated_at_local_display') %}
+          {% set source_label = 'læst fra DB (live)' %}
+          {% if rows %}
+          <div style="font-size:11px; color:#999999; margin-bottom:12px; padding:8px; background:#1a1a1a; border-radius:4px; border-left:3px solid #2196F3;">
+          📅 <strong>Plandata {{ source_label }}:</strong> {{ timestamp_display }}
+          </div>
+          <table>
+          <thead>
+          <tr>
+            <th>Tid</th>
+            <th>Handling</th>
+            <th>Mode</th>
+            <th>Grid Køb</th>
+            <th>Grid Salg</th>
+            <th>Grid→Hus</th>
+            <th>Grid→Batt</th>
+            <th>Grid→EV</th>
+            <th>PV→Hus</th>
+            <th>PV→Batt</th>
+            <th>PV→EV</th>
+            <th>Batt→Hus</th>
+            <th>Batt→EV</th>
+            <th>Batt→Salg</th>
+            <th>Batt In</th>
+            <th>Batt Out</th>
+            <th>Batt SoC</th>
+            <th>Batt %</th>
+            <th>EV Charge</th>
+            <th>EV SoC</th>
+            <th>Købspris</th>
+            <th>Salgspris</th>
+            <th>Grid Køb</th>
+            <th>Grid Salg</th>
+            <th>EV Bonus</th>
+            <th>Batt Slid</th>
+            <th>Batt Værdi</th>
+            <th>Netto</th>
+            <th>Forbrug (kWh)</th>
+            <th>Fra Grid</th>
+            <th>Fra Batteri</th>
+            <th>Fra PV</th>
+            <th>Total</th>
+            <th>Balance</th>
+          </tr>
+          </thead>
+          <tbody>
+          {% set ns = namespace(rows=[]) %}
+          {% for row in rows[:96] %}
+          {% set f = state_attr('sensor.energy_plan','plan_fields') or [] %}
+
+          {# Handle both dict and list formats #}
+          {% if row is mapping %}
+            {# Dict format #}
+            {% set time_str = (row.get('timestamp_local', row.get('timestamp', '')))|string %}
+            {% set activity = row.get('activity', '—') %}
+            {% set recommended_mode = row.get('recommended_mode', 'Selvforbrug') | string %}
+            {% set g_buy = row.get('g_buy', 0) | float(0) %}
+            {% set g_sell = row.get('g_sell', 0) | float(0) %}
+            {% set grid_to_house = row.get('grid_to_house', 0) | float(0) %}
+            {% set grid_to_batt = row.get('grid_to_batt', 0) | float(0) %}
+            {% set grid_to_ev = row.get('grid_to_ev', 0) | float(0) %}
+            {% set pv_to_house = (row.get('pv_to_house', 0) or row.get('prod_to_house', 0)) | float(0) %}
+            {% set pv_to_batt = (row.get('pv_to_batt', 0) or row.get('prod_to_batt', 0)) | float(0) %}
+            {% set pv_to_ev = (row.get('pv_to_ev', 0) or row.get('prod_to_ev', 0)) | float(0) %}
+            {% set batt_to_house = row.get('batt_to_house', 0) | float(0) %}
+            {% set batt_to_ev = row.get('batt_to_ev', 0) | float(0) %}
+            {% set batt_to_sell = row.get('batt_to_sell', 0) | float(0) %}
+            {% set battery_in = row.get('battery_in', 0) | float(0) %}
+            {% set battery_out = row.get('battery_out', 0) | float(0) %}
+            {% set battery_soc = row.get('battery_soc', 0) | float(0) %}
+            {% set battery_soc_pct = row.get('battery_soc_pct', 0) | float(0) %}
+            {% set ev_charge = row.get('ev_charge', 0) | float(0) %}
+            {% set ev_soc_pct = row.get('ev_soc_pct', 0) | float(0) %}
+            {% set price_buy = row.get('price_buy', 0) | float(0) %}
+            {% set price_sell = row.get('price_sell', 0) | float(0) %}
+            {% set grid_cost = row.get('grid_cost', 0) | float(0) %}
+            {% set grid_revenue = (row.get('grid_revenue_effective', 0) or row.get('grid_revenue', 0)) | float(0) %}
+            {% set ev_bonus = row.get('ev_bonus', 0) | float(0) %}
+            {% set battery_cycle_cost = row.get('battery_cycle_cost', 0) | float(0) %}
+            {% set battery_value_dkk = row.get('battery_value_dkk', 0) | float(0) %}
+            {% set cash_cost_dkk = row.get('cash_cost_dkk', 0) | float(0) %}
+            {% set house_from_grid = row.get('house_from_grid', 0) | float(0) %}
+            {% set house_from_battery = row.get('house_from_battery', 0) | float(0) %}
+            {% set house_from_pv = row.get('house_from_pv', 0) | float(0) %}
+          {% else %}
+            {# List format with plan_fields #}
+            {% set time_str = '' %}
+            {% set activity = '—' %}
+            {% set recommended_mode = 'Selvforbrug' %}
+            {% set g_buy = 0 %}
+            {% set g_sell = 0 %}
+            {% set grid_to_house = 0 %}
+            {% set grid_to_batt = 0 %}
+            {% set grid_to_ev = 0 %}
+            {% set pv_to_house = 0 %}
+            {% set pv_to_batt = 0 %}
+            {% set pv_to_ev = 0 %}
+            {% set batt_to_house = 0 %}
+            {% set batt_to_ev = 0 %}
+            {% set batt_to_sell = 0 %}
+            {% set battery_in = 0 %}
+            {% set battery_out = 0 %}
+            {% set battery_soc = 0 %}
+            {% set battery_soc_pct = 0 %}
+            {% set ev_charge = 0 %}
+            {% set price_buy = 0 %}
+            {% set price_sell = 0 %}
+            {% set grid_cost = 0 %}
+            {% set grid_revenue = 0 %}
+            {% set ev_bonus = 0 %}
+            {% set battery_cycle_cost = 0 %}
+            {% set battery_value_dkk = 0 %}
+            {% set cash_cost_dkk = 0 %}
+            {% set house_from_grid = 0 %}
+            {% set house_from_battery = 0 %}
+            {% set house_from_pv = 0 %}
+
+            {% if f %}
+              {% if 'timestamp_local' in f %}
+                {% set i = f.index('timestamp_local') %}
+                {% if i < (row | length) %}
+                  {% set time_str = row[i] | string %}
+                {% endif %}
+              {% endif %}
+              {% if 'activity' in f %}
+                {% set i = f.index('activity') %}
+                {% if i < (row | length) %}
+                  {% set activity = row[i] | string %}
+                {% endif %}
+              {% endif %}
+              {% if 'recommended_mode' in f %}
+                {% set i = f.index('recommended_mode') %}
+                {% if i < (row | length) and row[i] is not none %}
+                  {% set recommended_mode = row[i] | string %}
+                {% endif %}
+              {% endif %}
+              {% if 'g_buy' in f %}
+                {% set i = f.index('g_buy') %}
+                {% if i < (row | length) %}
+                  {% set g_buy = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'g_sell' in f %}
+                {% set i = f.index('g_sell') %}
+                {% if i < (row | length) %}
+                  {% set g_sell = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'grid_to_house' in f %}
+                {% set i = f.index('grid_to_house') %}
+                {% if i < (row | length) %}
+                  {% set grid_to_house = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'grid_to_batt' in f %}
+                {% set i = f.index('grid_to_batt') %}
+                {% if i < (row | length) %}
+                  {% set grid_to_batt = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'grid_to_ev' in f %}
+                {% set i = f.index('grid_to_ev') %}
+                {% if i < (row | length) %}
+                  {% set grid_to_ev = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'pv_to_house' in f %}
+                {% set i = f.index('pv_to_house') %}
+                {% if i < (row | length) %}
+                  {% set pv_to_house = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% elif 'prod_to_house' in f %}
+                {% set i = f.index('prod_to_house') %}
+                {% if i < (row | length) %}
+                  {% set pv_to_house = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'pv_to_batt' in f %}
+                {% set i = f.index('pv_to_batt') %}
+                {% if i < (row | length) %}
+                  {% set pv_to_batt = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% elif 'prod_to_batt' in f %}
+                {% set i = f.index('prod_to_batt') %}
+                {% if i < (row | length) %}
+                  {% set pv_to_batt = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'pv_to_ev' in f %}
+                {% set i = f.index('pv_to_ev') %}
+                {% if i < (row | length) %}
+                  {% set pv_to_ev = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% elif 'prod_to_ev' in f %}
+                {% set i = f.index('prod_to_ev') %}
+                {% if i < (row | length) %}
+                  {% set pv_to_ev = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'batt_to_house' in f %}
+                {% set i = f.index('batt_to_house') %}
+                {% if i < (row | length) %}
+                  {% set batt_to_house = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'batt_to_ev' in f %}
+                {% set i = f.index('batt_to_ev') %}
+                {% if i < (row | length) %}
+                  {% set batt_to_ev = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'batt_to_sell' in f %}
+                {% set i = f.index('batt_to_sell') %}
+                {% if i < (row | length) %}
+                  {% set batt_to_sell = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'battery_in' in f %}
+                {% set i = f.index('battery_in') %}
+                {% if i < (row | length) %}
+                  {% set battery_in = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'battery_out' in f %}
+                {% set i = f.index('battery_out') %}
+                {% if i < (row | length) %}
+                  {% set battery_out = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'battery_soc' in f %}
+                {% set i = f.index('battery_soc') %}
+                {% if i < (row | length) %}
+                  {% set battery_soc = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'battery_soc_pct' in f %}
+                {% set i = f.index('battery_soc_pct') %}
+                {% if i < (row | length) %}
+                  {% set battery_soc_pct = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'ev_charge' in f %}
+                {% set i = f.index('ev_charge') %}
+                {% if i < (row | length) %}
+                  {% set ev_charge = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'ev_soc_pct' in f %}
+                {% set i = f.index('ev_soc_pct') %}
+                {% if i < (row | length) %}
+                  {% set ev_soc_pct = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'price_buy' in f %}
+                {% set i = f.index('price_buy') %}
+                {% if i < (row | length) %}
+                  {% set price_buy = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'price_sell' in f %}
+                {% set i = f.index('price_sell') %}
+                {% if i < (row | length) %}
+                  {% set price_sell = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'grid_cost' in f %}
+                {% set i = f.index('grid_cost') %}
+                {% if i < (row | length) %}
+                  {% set grid_cost = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'grid_revenue_effective' in f %}
+                {% set i = f.index('grid_revenue_effective') %}
+                {% if i < (row | length) %}
+                  {% set grid_revenue = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% elif 'grid_revenue' in f %}
+                {% set i = f.index('grid_revenue') %}
+                {% if i < (row | length) %}
+                  {% set grid_revenue = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'ev_bonus' in f %}
+                {% set i = f.index('ev_bonus') %}
+                {% if i < (row | length) %}
+                  {% set ev_bonus = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'battery_cycle_cost' in f %}
+                {% set i = f.index('battery_cycle_cost') %}
+                {% if i < (row | length) %}
+                  {% set battery_cycle_cost = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'battery_value_dkk' in f %}
+                {% set i = f.index('battery_value_dkk') %}
+                {% if i < (row | length) %}
+                  {% set battery_value_dkk = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'cash_cost_dkk' in f %}
+                {% set i = f.index('cash_cost_dkk') %}
+                {% if i < (row | length) %}
+                  {% set cash_cost_dkk = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'house_from_grid' in f %}
+                {% set i = f.index('house_from_grid') %}
+                {% if i < (row | length) %}
+                  {% set house_from_grid = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'house_from_battery' in f %}
+                {% set i = f.index('house_from_battery') %}
+                {% if i < (row | length) %}
+                  {% set house_from_battery = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+              {% if 'house_from_pv' in f %}
+                {% set i = f.index('house_from_pv') %}
+                {% if i < (row | length) %}
+                  {% set house_from_pv = (row[i] | string).replace(',', '.') | float(0) %}
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          {% endif %}
+
+          {% set time_parts = time_str.split('T') %}
+          {% set time_only = time_parts[1].split('+')[0] if time_parts|length > 1 else time_str %}
+          {% set hhmm = time_only[0:5] %}
+          {# Use cash_cost_dkk directly from backend - it includes ALL economics #}
+          {% set netto_dkk = cash_cost_dkk %}
+          {# House consumption breakdown from computed fields #}
+          {% set e_from_grid = house_from_grid %}
+          {% set e_from_batt = house_from_battery %}
+          {% set e_from_pv = house_from_pv %}
+          {% set e_total = e_from_grid + e_from_batt + e_from_pv %}
+          {% set e_cons = e_total %}
+          {% set e_balance = e_total - e_cons %}
+          {% set bg = '#1e1e1e' if loop.index0 % 2 == 0 else '#2a2a2a' %}
+          {% set row_html = '<tr style="background:' ~ bg ~ ';">' ~
+            '<td>' ~ hhmm ~ '</td>' ~
+            '<td>' ~ activity ~ '</td>' ~
+            '<td>' ~ recommended_mode ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(g_buy) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(g_sell) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(grid_to_house) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(grid_to_batt) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(grid_to_ev) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(pv_to_house) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(pv_to_batt) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(pv_to_ev) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(batt_to_house) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(batt_to_ev) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(batt_to_sell) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(battery_in) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(battery_out) ~ '</td>' ~
+            '<td>' ~ '%.2f'|format(battery_soc) ~ '</td>' ~
+            '<td>' ~ '%.0f'|format(battery_soc_pct) ~ '%</td>' ~
+            '<td>' ~ '%.3f'|format(ev_charge) ~ '</td>' ~
+            '<td>' ~ '%.0f'|format(ev_soc_pct) ~ '%</td>' ~
+            '<td>' ~ '%.2f'|format(price_buy) ~ '</td>' ~
+            '<td>' ~ '%.2f'|format(price_sell) ~ '</td>' ~
+            '<td>' ~ '%.2f'|format(grid_cost) ~ '</td>' ~
+            '<td>' ~ '%.2f'|format(grid_revenue) ~ '</td>' ~
+            '<td>' ~ '%.2f'|format(ev_bonus) ~ '</td>' ~
+            '<td>' ~ '%.2f'|format(battery_cycle_cost) ~ '</td>' ~
+            '<td>' ~ '%.2f'|format(battery_value_dkk) ~ '</td>' ~
+            '<td>' ~ '%.2f'|format(netto_dkk) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(e_cons) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(e_from_grid) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(e_from_batt) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(e_from_pv) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(e_total) ~ '</td>' ~
+            '<td>' ~ '%.3f'|format(e_balance) ~ '</td>' ~
+            '</tr>' %}
+          {% set ns.rows = ns.rows + [row_html] %}
+          {% endfor %}
+          {{ ns.rows | join('\n') | safe }}
+          </tbody>
+          </table>
+          {% else %}
+          <em>Ingen data.</em>
+          {% endif %}
+
+  - title: Planner Control
+    path: planner-control
+    icon: mdi:robot
+    panel: false
+    badges: []
+    cards:
+      - type: entities
+        title: System Status
+        show_header_toggle: false
+        entities:
+          - entity: input_boolean.energy_planner_automation_enabled
+            name: "🔴 MASTER SWITCH: Automatisk Styring"
+          - entity: input_boolean.energy_planner_dry_run
+            name: "🟡 Dry Run Mode (Log Only)"
+          - entity: input_select.energy_planner_current_state
+            name: Aktuel tilstand
+          - entity: input_text.energy_planner_last_error
+            name: Sidste fejl / besked
+          - entity: sensor.energy_plan
+            name: Planner Status
+          - entity: sensor.planner_action_recommended
+            name: Anbefalet handling (nu)
+          - entity: sensor.planner_activity_now
+            name: Aktivitet (flow)
+          - entity: sensor.planner_ev_source
+            name: EV kilde (PV/Grid/Batt/Mix)
+
+      - type: grid
+        title: Batteri & EV Overblik
+        square: false
+        columns: 1
+        cards:
+          - type: entities
+            title: Batteri Styring
+            entities:
+              - type: section
+                label: Plannerens Ønske
+              - entity: sensor.planner_target_battery_power
+                name: Target effekt (W)
+              - entity: sensor.planner_action_recommended
+                name: Target mode
+              - entity: sensor.planner_activity_now
+                name: Aktivitet (flow)
+              - type: section
+                label: Deye (aktuel)
+              - entity: sensor.deye12_sun12k_battery_output_power
+                name: Aktuel effekt
+              - entity: switch.deye12_sun12k_time_point_1_charge_enable
+                name: Grid Charge (Slot 1)
+              - entity: number.deye12_sun12k_time_point_1_capacity
+                name: Target SOC (Slot 1)
+
+          - type: entities
+            title: EV Styring
+            entities:
+              - type: section
+                label: Plannerens Ønske
+              - entity: sensor.planner_target_ev_charging
+                name: Skal lade?
+              - entity: sensor.planner_ev_source
+                name: Kilde (PV/Grid/Batt/Mix)
+              - entity: sensor.planner_target_ev_percent
+                name: Mål (%) (model)
+              - type: section
+                label: EV Status
+              - entity: sensor.easee_status
+                name: Easee status
+              - entity: switch.ev_smart_charging_smart_charging_activated
+                name: Smart Charging
+
+      - type: entities
+        title: Manuel Test af Handlinger
+        entities:
+          - type: section
+            label: "ADVARSEL: Dry-Run ON anbefales ved test"
+          - type: button
+            name: "TEST: Tving Opladning (Grid Charge ON)"
+            icon: mdi:flash
+            tap_action:
+              action: call-service
+              service: script.energy_planner_apply_inverter_settings
+              service_data:
+                mode: "Charge (Grid)"
+                target_soc: 90
+          - type: button
+            name: "TEST: Normal Drift (Grid Charge OFF)"
+            icon: mdi:battery-outline
+            tap_action:
+              action: call-service
+              service: script.energy_planner_apply_inverter_settings
+              service_data:
+                mode: "Discharge"
+          - type: button
+            name: "TEST: EV Lad (hvis tilsluttet)"
+            icon: mdi:car-electric
+            tap_action:
+              action: call-service
+              service: script.energy_planner_charge_ev
+              service_data:
+                amps: 16
+          - type: button
+            name: "TEST: Sæt EV target fra model"
+            icon: mdi:battery-check
+            tap_action:
+              action: call-service
+              service: script.energy_planner_set_ev_target
