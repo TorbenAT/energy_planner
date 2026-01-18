@@ -36,22 +36,35 @@ def solve_optimization_linear(
     if T == 0:
         return OptimizationResult(pd.DataFrame(), 0.0, "Empty Forecast")
 
+    # Resolution handling
+    res_min = ctx.resolution_minutes if ctx.resolution_minutes > 0 else 15
+    slots_per_hour = 60.0 / res_min
+    
+    # Dynamic limits from context (fallback to global constants if not set)
+    # Convert hourly kW/kWh limits to per-slot kWh
+    max_charge_qh = (ctx.max_charge_kwh / slots_per_hour) if ctx.max_charge_kwh else MAX_BATTERY_CHARGE_QH
+    max_discharge_qh = (ctx.max_discharge_kwh / slots_per_hour) if ctx.max_discharge_kwh else MAX_BATTERY_DISCHARGE_QH
+    max_ev_charge_qh = (ctx.max_ev_charge_kwh / slots_per_hour) if ctx.max_ev_charge_kwh else MAX_EV_CHARGE_QH
+    # Grid limits are still from constants (usually fixed by fuse size)
+    max_grid_buy_qh = MAX_GRID_BUY_QH
+    max_grid_sell_qh = MAX_GRID_SELL_QH
+
     # Create LP problem
     prob = lp.LpProblem("EnergyPlan_Linear", lp.LpMinimize)
 
     # --- Variables ---
     # Grid
-    g_buy = lp.LpVariable.dicts("g_buy", range(T), lowBound=0, upBound=MAX_GRID_BUY_QH)
-    g_sell = lp.LpVariable.dicts("g_sell", range(T), lowBound=0, upBound=MAX_GRID_SELL_QH)
+    g_buy = lp.LpVariable.dicts("g_buy", range(T), lowBound=0, upBound=max_grid_buy_qh)
+    g_sell = lp.LpVariable.dicts("g_sell", range(T), lowBound=0, upBound=max_grid_sell_qh)
     
     # Battery
-    batt_charge = lp.LpVariable.dicts("batt_charge", range(T), lowBound=0, upBound=MAX_BATTERY_CHARGE_QH)
-    batt_discharge = lp.LpVariable.dicts("batt_discharge", range(T), lowBound=0, upBound=MAX_BATTERY_DISCHARGE_QH)
-    batt_soc = lp.LpVariable.dicts("batt_soc", range(T+1), lowBound=BATTERY_MIN_SOC_KWH, upBound=BATTERY_CAPACITY_KWH)
+    batt_charge = lp.LpVariable.dicts("batt_charge", range(T), lowBound=0, upBound=max_charge_qh)
+    batt_discharge = lp.LpVariable.dicts("batt_discharge", range(T), lowBound=0, upBound=max_discharge_qh)
+    batt_soc = lp.LpVariable.dicts("batt_soc", range(T+1), lowBound=ctx.battery_min_soc_kwh, upBound=ctx.battery_capacity_kwh)
     
     # EV
-    ev_charge = lp.LpVariable.dicts("ev_charge", range(T), lowBound=0, upBound=MAX_EV_CHARGE_QH)
-    ev_soc = lp.LpVariable.dicts("ev_soc", range(T+1), lowBound=0, upBound=EV_BATTERY_CAPACITY_KWH)
+    ev_charge = lp.LpVariable.dicts("ev_charge", range(T), lowBound=0, upBound=max_ev_charge_qh)
+    ev_soc = lp.LpVariable.dicts("ev_soc", range(T+1), lowBound=0, upBound=ctx.ev_battery_capacity_kwh)
 
     # Flows (Internal routing)
     grid_to_house = lp.LpVariable.dicts("grid_to_house", range(T), lowBound=0)
@@ -119,7 +132,7 @@ def solve_optimization_linear(
         # --- Objective ---
         cost_grid = g_buy[t] * price_buy
         rev_grid = g_sell[t] * price_sell
-        cost_batt = (batt_discharge[t] + batt_charge[t]) * (BATTERY_CYCLE_COST_DKK_PER_KWH / 2.0)
+        cost_batt = (batt_discharge[t] + batt_charge[t]) * BATTERY_CYCLE_COST_DKK_PER_KWH
         bonus_ev = ev_charge[t] * EV_CHARGE_BONUS_DKK_PER_KWH
         
         total_cost += cost_grid - rev_grid + cost_batt - bonus_ev
@@ -179,7 +192,7 @@ def solve_optimization_linear(
         
         row["grid_cost"] = row["g_buy"] * p_buy
         row["grid_revenue_effective"] = row["g_sell"] * p_sell
-        row["battery_cycle_cost"] = (row["battery_in"] + row["battery_out"]) * (BATTERY_CYCLE_COST_DKK_PER_KWH / 2.0)
+        row["battery_cycle_cost"] = (row["battery_in"] + row["battery_out"]) * BATTERY_CYCLE_COST_DKK_PER_KWH
         row["ev_bonus"] = row["ev_charge"] * EV_CHARGE_BONUS_DKK_PER_KWH
         
         rows.append(row)

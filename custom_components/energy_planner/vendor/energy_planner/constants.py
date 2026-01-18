@@ -9,8 +9,8 @@ SLOTS_PER_HOUR = 60 // DEFAULT_RESOLUTION_MINUTES
 # --- Technical limits (hourly defaults) ---
 MAX_GRID_BUY_KWH = 17.0          # Max grid import per hour [kWh]
 MAX_GRID_SELL_KWH = 12.0         # Max grid export per hour [kWh]
-MAX_BATTERY_CHARGE_KWH = 5.0     # Max battery charge rate per hour [kWh] (5kW sensor)
-MAX_BATTERY_DISCHARGE_KWH = 10.0 # Max battery discharge rate per hour [kWh]
+MAX_BATTERY_CHARGE_KWH = 12.0    # Max battery charge rate per hour [kWh] (12kW Deye)
+MAX_BATTERY_DISCHARGE_KWH = 12.0 # Max battery discharge rate per hour [kWh]
 MAX_EV_CHARGE_KWH = 10.0         # Max EV charge per hour [kWh]
 MAX_INVERTER_OUTPUT_KWH = 12.0   # Max combined inverter output per hour [kWh]
 
@@ -34,7 +34,7 @@ EV_BATTERY_CAPACITY_KWH = 75.0
 EV_DEFAULT_MIN_CHARGE_KWH = 25.0
 
 # --- Economics ---
-BATTERY_CYCLE_COST_DKK_PER_KWH = 0.15
+BATTERY_CYCLE_COST_DKK_PER_KWH = 0.02
 EV_CHARGE_BONUS_DKK_PER_KWH = 0.15
 MIN_SELL_PRICE_DKK = 0.04
 

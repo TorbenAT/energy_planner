@@ -198,8 +198,8 @@ def solve_quarter_hour(forecast: pd.DataFrame, ctx: OptimizationContext) -> Opti
     model = lp.LpProblem("QuarterHourOptimization", lp.LpMaximize)
 
     # Parameters for arbitrage gating and hysteresis
-    ETA_RT = 0.88  # round-trip efficiency for arbitrage check
-    CYCLE_COST = 0.15  # DKK/kWh threshold for arbitrage gating
+    ETA_RT = BATTERY_EFFICIENCY_IN * BATTERY_EFFICIENCY_OUT  # Use physical efficiency instead of hardcoded 0.88
+    CYCLE_COST = BATTERY_CYCLE_COST_DKK_PER_KWH              # Use central cycle cost instead of hardcoded 0.15
     PRICE_DEADBAND = 0.05  # DKK deadband required to flip charge/discharge mode
     MIN_RUNTIME_STEPS = 3  # minimum on/off runtime for charge and discharge modes (in slots)
 

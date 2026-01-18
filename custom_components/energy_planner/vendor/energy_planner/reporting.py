@@ -547,10 +547,10 @@ def _prepare_plan_dataframe(
         if row.get("battery_out", 0) > threshold and batt_to_sell > threshold:
             modes.append("Batt→Salg")
         
-        # Check sell priority (minimal battery charge)
-        pv_to_house = row.get("pv_to_house", 0) + row.get("house_from_pv", 0)
-        pv_to_batt = row.get("pv_to_batt", 0)
-        if pv_to_house > threshold and pv_to_batt < threshold:
+        # Check sell priority (Grid export occurs)
+        # Fix: Only label as "Sælg Overskud" if we are actually exporting to grid
+        # and not explicitly selling from battery (which is Batt→Salg)
+        if row.get("g_sell", 0) > threshold and batt_to_sell < threshold:
             modes.append("Sælg Overskud")
         
         # Combine or default

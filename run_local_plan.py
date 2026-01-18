@@ -14,9 +14,12 @@ os.environ["MARIADB_DSN"] = "mysql+pymysql://energy_planner_app:MSf$0`hFHCW^QmH$
 try:
     from vendor.energy_planner.scheduler import run_once
     result = run_once()
+    print(f"DEBUG: Result keys: {result.keys()}")
     
-    if "plan" in result:
-        df = pd.DataFrame(result["plan"])
+    if "report" in result:
+        df = result["report"].plan
+        if "timestamp" not in df.columns and "timestamp_local" in df.columns:
+             df["timestamp"] = df["timestamp_local"]
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         
         # Kolonner der er interessante for fejlsøgning
@@ -24,8 +27,8 @@ try:
             "timestamp", 
             "price_buy", 
             "battery_soc_pct", 
-            "battery_charge_from_grid", 
-            "battery_in_kw", 
+            "battery_in",
+            "battery_cycle_cost",
             "grid_to_batt", 
             "recommended_mode"
         ]
@@ -37,9 +40,7 @@ try:
         # Sørger for at alle rækker vises og ikke forkortes
         pd.set_option('display.max_rows', 5)
         pd.set_option('display.width', 1000)
-        target_cols = ["timestamp", "price_buy", "grid_to_batt", "battery_soc_pct", "battery_in_kw"]
-        avail_target = [c for c in target_cols if c in df.columns]
-        print(df[avail_target].head(5).to_string(index=False))
+        print(df[avail].head(5).to_string(index=False))
         
         # Tjekker specifikt den første række
         first = df.iloc[0]

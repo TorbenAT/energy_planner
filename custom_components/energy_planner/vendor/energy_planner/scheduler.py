@@ -756,6 +756,7 @@ def build_context(
 		battery_capacity_kwh=curr_batt_cap_kwh,
 		battery_min_soc_kwh=curr_min_soc_kwh,
 		max_charge_kwh=curr_max_charge_kwh,
+		max_discharge_kwh=curr_max_discharge_kwh,
 	)
 
 	return context, policy

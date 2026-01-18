@@ -508,7 +508,13 @@ def compute_adaptive_policy(
             readable_status = normalized_status.replace("_", " ") or "ukendt"
             notes.append(f"EV ikke klar til opladning (status: {readable_status}). Holder buffer til senere.")
 
-    reserve_penalty = _compute_reserve_penalty(price_signal_series, reserve_schedule, curr_min_soc_kwh, curr_batt_cap_kwh)
+    reserve_penalty = _compute_reserve_penalty(
+        price_signal_series, 
+        reserve_schedule, 
+        curr_min_soc_kwh, 
+        curr_batt_cap_kwh,
+        user_cheap_threshold
+    )
     penalty_floor = max(hold_value, price_high_threshold, 0.0)
     penalty_cap = penalty_floor + BATTERY_CYCLE_COST_DKK_PER_KWH + 0.25 if penalty_floor > 0 else None
     if penalty_cap is not None and penalty_cap > 0:
@@ -854,19 +860,44 @@ def _compute_reserve_penalty(
     reserve_schedule: Sequence[float],
     curr_min_soc_kwh: float,
     curr_batt_cap_kwh: float,
+    user_cheap_threshold: Optional[float] = None,
 ) -> float:
+    """Beregn 'straf' for at bruge af reserven.
+    Sættes denne for højt, blokerer den for arbitrage (peak shaving).
+    Sættes den for lavt, tømmes batteriet for aggressivt.
+    """
     if prices_buy.empty:
         return 0.0
-    baseline = float(prices_buy.quantile(0.65))
+    
+    # Vi bruger en lavere percentil (0.50 i stedet for 0.65) som baseline 
+    # for at gøre systemet mere villigt til at bruge batteriet.
+    baseline = float(prices_buy.quantile(0.50))
     if baseline <= 0:
         return 0.0
+    
     utilization = 0.0
     if reserve_schedule:
         max_reserve = max(reserve_schedule) - curr_min_soc_kwh
         capacity_span = max(0.0, curr_batt_cap_kwh - curr_min_soc_kwh)
         if capacity_span > 0:
             utilization = max_reserve / capacity_span
-    return baseline * (1.0 + 0.5 * utilization)
+            
+    # Reduceret multiplikator (fra 0.5 til 0.3) for at sænke det statiske loft.
+    penalty = baseline * (1.0 + 0.3 * utilization)
+    
+    # Arbitrage-sikring: Straffen bør ikke være markant højere end 
+    # de billigste timer vi kan se i horisonten (plus effektivitetstab).
+    future_min = float(prices_buy.min())
+    eff_recharge_cost = (future_min / 0.88) + BATTERY_CYCLE_COST_DKK_PER_KWH + 0.10
+    
+    # Hvis brugeren har sat en 'cheap' grænse, bruger vi den som en indikation
+    # af hvad strømmen i batteriet er 'værd' som minimum.
+    if user_cheap_threshold is not None and user_cheap_threshold > 0:
+        eff_recharge_cost = min(eff_recharge_cost, user_cheap_threshold + 0.20)
+
+    # Vi vælger den mindste af værdierne, så vi aldrig 'beskytter' reserven
+    # til en pris der er højere end genopfyldningsprisen.
+    return min(penalty, eff_recharge_cost)
 
 
 def _build_sell_price_override(

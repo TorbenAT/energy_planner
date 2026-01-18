@@ -137,14 +137,31 @@ class HomeAssistantClient:
         forecasts: List[ProductionPoint] = []
         for sensor in sensor_ids:
             payload = self.fetch_state(sensor)
-            details = payload.get("attributes", {}).get("detailedHourly", []) or []
+            attrs = payload.get("attributes", {})
+            # Check multiple common attribute names for Solcast/PV forecasts
+            # Added 'detailedForecast' (common in Solcast) and 'weather_hourly'
+            details = (
+                attrs.get("detailedForecast") 
+                or attrs.get("detailedHourly") 
+                or attrs.get("forecast") 
+                or attrs.get("detailed_hourly") 
+                or attrs.get("weather_hourly")
+                or []
+            )
+            if not isinstance(details, list):
+                details = []
+
             for item in details:
-                ts_raw = item.get("period_end") or item.get("period_start")
-                pv_estimate = item.get("pv_estimate")
+                # Support various Solcast/DAF field names
+                ts_raw = item.get("period_end") or item.get("period_start") or item.get("datetime") or item.get("timestamp")
+                pv_estimate = item.get("pv_estimate") or item.get("pv_estimate_10") or item.get("value")
                 if ts_raw is None or pv_estimate is None:
                     continue
-                ts = parser.isoparse(ts_raw)
-                forecasts.append(ProductionPoint(timestamp=ts, pv_estimate_kw=float(pv_estimate)))
+                try:
+                    ts = parser.isoparse(ts_raw)
+                    forecasts.append(ProductionPoint(timestamp=ts, pv_estimate_kw=float(pv_estimate)))
+                except (TypeError, ValueError):
+                    continue
         forecasts.sort(key=lambda p: p.timestamp)
         return forecasts
 
