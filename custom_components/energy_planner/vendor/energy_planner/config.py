@@ -51,22 +51,22 @@ def _apply_env_file(path: Path) -> None:
             load_dotenv(dotenv_path=path, override=False)
             _LOADED_ENV_FILES.append(str(path))
             logger.debug("Loaded environment variables from %s", path)
-            return
-        for raw_line in path.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            key, sep, value = line.partition("=")
-            if not sep:
-                continue
-            key = key.strip()
-            if not key:
-                continue
-            value = _strip_inline_comment(value).strip()
-            value = _unquote(value)
-            os.environ.setdefault(key, value)
-        _LOADED_ENV_FILES.append(str(path))
-        logger.debug("Loaded environment variables from %s (manual parser)", path)
+        else:
+            for raw_line in path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                key, sep, value = line.partition("=")
+                if not sep:
+                    continue
+                key = key.strip()
+                if not key:
+                    continue
+                value = _strip_inline_comment(value).strip()
+                value = _unquote(value)
+                os.environ.setdefault(key, value)
+            _LOADED_ENV_FILES.append(str(path))
+            logger.debug("Loaded environment variables from %s (manual parser)", path)
     except OSError:
         return
 
@@ -234,11 +234,11 @@ DEFAULT_SECRET_NAME = "homeassistant_api_token"
 def load_settings() -> Settings:
     """Populate settings from environment variables and HA secrets."""
 
-    base_url = os.environ.get("HA_BASE_URL")
+    base_url = os.environ.get("HA_BASE_URL", "http://localhost:8123")
     if not base_url:
         raise EnvironmentError("HA_BASE_URL must be set to the Home Assistant API base URL")
 
-    api_key = os.environ.get("HA_API_KEY")
+    api_key = os.environ.get("HA_API_KEY") or os.environ.get("HA_TOKEN")
     if not api_key:
         secret_name = os.environ.get("HA_API_KEY_SECRET", DEFAULT_SECRET_NAME)
         api_key = _load_secret_from_file(secret_name) or ""

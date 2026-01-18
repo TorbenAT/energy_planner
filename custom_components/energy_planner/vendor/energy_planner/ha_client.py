@@ -49,7 +49,10 @@ class HomeAssistantClient:
             if exc.response is not None and exc.response.status_code == 404:
                 return {}
             raise
-        return response.json()
+        try:
+            return response.json()
+        except ValueError:
+            return {}
 
     def _post(self, path: str, json: Optional[Dict[str, Any]] = None) -> Dict:
         url = f"{self.base_url}{path}"

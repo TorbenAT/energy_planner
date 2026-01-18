@@ -336,9 +336,11 @@ class DataPipeline:
 
     def build_forecast_dataframe(self, now: datetime, ctx: Optional[OptimizationContext] = None) -> pd.DataFrame:
         tz_now = ensure_timezone(now, self.settings.timezone)
-        horizon_periods = int((self.settings.lookahead_hours * 60) / self.settings.resolution_minutes)
-        start = floor_to_resolution(tz_now, self.settings.resolution_minutes)
-        index = generate_quarter_range(start, horizon_periods, self.settings.resolution_minutes)
+        period_minutes = self.settings.resolution_minutes
+        freq_str = f"{period_minutes}min"
+        horizon_periods = int((self.settings.lookahead_hours * 60) / period_minutes)
+        start = floor_to_resolution(tz_now, period_minutes)
+        index = generate_quarter_range(start, horizon_periods, period_minutes)
         df = pd.DataFrame(index=index)
         self.last_consumption_note = None
 
@@ -389,7 +391,6 @@ class DataPipeline:
         df["price_sell"] = [sell_map.get(ts) for ts in df.index]
 
         period_hours = max(self.settings.resolution_minutes / 60.0, 1e-9)
-        freq_str = f"{self.settings.resolution_minutes}min"
 
         external_buy = self._load_price_forecast(freq_str)
         if external_buy is not None:
@@ -545,7 +546,6 @@ class DataPipeline:
             history_start = tz_now - timedelta(hours=history_window)
             period_minutes = self.settings.resolution_minutes
             period_hours = max(period_minutes / 60.0, 1e-9)
-            freq_str = f"{period_minutes}min"
 
             total_qh = self._load_cumulative_qh(
                 self.settings.house_total_sensor, history_start, tz_now, period_minutes
@@ -845,7 +845,6 @@ class DataPipeline:
             try:
                 history_window = max(self.settings.consumption_history_hours, self.settings.lookahead_hours)
                 history_start = tz_now - timedelta(hours=history_window)
-                freq_str = f"{self.settings.resolution_minutes}min"
                 raw_history = self.ha.fetch_history_series(
                     self.settings.house_consumption_sensor,
                     history_start,

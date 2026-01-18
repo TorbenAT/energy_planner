@@ -20,6 +20,7 @@ from .constants import (
     EV_CHARGE_BONUS_DKK_PER_KWH,
     MAX_EV_CHARGE_KWH,
     MAX_EV_CHARGE_QH,
+    SLOTS_PER_HOUR,
 )
 from .data_pipeline import DataPipeline
 from .db import create_session_factory

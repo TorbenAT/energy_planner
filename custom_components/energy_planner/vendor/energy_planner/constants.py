@@ -40,7 +40,6 @@ MIN_SELL_PRICE_DKK = 0.04
 
 # --- Planning horizon ---
 DEFAULT_LOOKAHEAD_HOURS = 168
-DEFAULT_RESOLUTION_MINUTES = 15
 
 # --- Database defaults ---
 DEFAULT_SCHEMA = "energy_planner"
