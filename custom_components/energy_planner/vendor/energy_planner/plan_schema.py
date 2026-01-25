@@ -60,6 +60,8 @@ PLAN_COLUMNS: List[ColumnDef] = [
     ColumnDef("ev_charge", "state", "float", description="EV charging (kWh)"),
     ColumnDef("ev_soc_kwh", "state", "float", description="EV State of Charge (kWh)"),
     ColumnDef("ev_soc_pct", "state", "float", description="EV SoC (%)"),
+    ColumnDef("ev_driving_consumption_kwh", "forecast", "float", description="EV driving consumption (kWh)"),
+    ColumnDef("ev_available", "forecast", "float", description="EV available for charging (bool as float)"),
     
     # Prices
     ColumnDef("price_buy", "price", "float", description="Grid buy price (DKK/kWh)"),

@@ -131,28 +131,29 @@ def build_context(
 	battery_soc_pct = ha.fetch_numeric_state(settings.battery_soc_sensor)
 	ev_soc_pct = ha.fetch_numeric_state(settings.ev_soc_sensor)
 	
-	# CRITICAL VALIDATION: Require valid SOC data for BOTH battery and EV before proceeding
-	# Missing SOC data leads to incorrect planning and wrong energy calculations for the next 15 min
+	# SOC VALIDATION with fallback values
+	# If sensors are unavailable (e.g., during HA startup or Tesla sleep), use safe defaults
+	battery_soc_pct_valid = battery_soc_pct
 	if battery_soc_pct is None or battery_soc_pct < 0 or battery_soc_pct > 100:
-		raise ValueError(
-			f"❌ OPTIMIZATION BLOCKED: Battery SOC is invalid (sensor={settings.battery_soc_sensor}, "
-			f"value={battery_soc_pct}). Cannot proceed with optimization without valid battery state of charge. "
-			f"Check that {settings.battery_soc_sensor} is available and returns a value between 0-100%."
+		logger.warning(
+			f"⚠️ Battery SOC sensor invalid (sensor={settings.battery_soc_sensor}, value={battery_soc_pct}). "
+			f"Using fallback: 50%"
 		)
+		battery_soc_pct_valid = 50.0
 	
+	ev_soc_pct_valid = ev_soc_pct
 	if ev_soc_pct is None or ev_soc_pct < 0 or ev_soc_pct > 100:
-		raise ValueError(
-			f"❌ OPTIMIZATION BLOCKED: EV SOC is invalid (sensor={settings.ev_soc_sensor}, "
-			f"value={ev_soc_pct}). Cannot proceed with optimization without valid EV state of charge. "
-			f"Check that {settings.ev_soc_sensor} is available and returns a value between 0-100%. "
-			f"If EV is disconnected, the optimizer cannot safely plan charging."
+		logger.warning(
+			f"⚠️ EV SOC sensor invalid (sensor={settings.ev_soc_sensor}, value={ev_soc_pct}). "
+			f"Using fallback: 50%. Note: EV charging may not be optimal if car is actually connected."
 		)
+		ev_soc_pct_valid = 50.0
 	
 	# Convert validated percentages to kWh
-	battery_soc_kwh = max(0.0, min(100.0, battery_soc_pct)) / 100 * curr_batt_cap_kwh
+	battery_soc_kwh = max(0.0, min(100.0, battery_soc_pct_valid)) / 100 * curr_batt_cap_kwh
 	battery_soc_kwh = max(curr_min_soc_kwh, min(curr_batt_cap_kwh, battery_soc_kwh))
 	
-	ev_soc_kwh = max(0.0, min(100.0, ev_soc_pct)) / 100 * EV_BATTERY_CAPACITY_KWH
+	ev_soc_kwh = max(0.0, min(100.0, ev_soc_pct_valid)) / 100 * EV_BATTERY_CAPACITY_KWH
 
 	target_soc_pct = ha.fetch_numeric_state(settings.ev_target_soc_sensor) or 90.0
 	target_soc_ratio = max(0.0, min(100.0, target_soc_pct)) / 100
@@ -346,6 +347,25 @@ def build_context(
 	max_deliverable_total = total_window_capacity_slots * max_ev_charge_slot
 	default_target_pct = max(0.0, min(100.0, target_soc_ratio * 100.0))
 	price_series = forecast.get("price_buy", pd.Series(dtype=float)).astype(float).fillna(0.0)
+
+	# CRITICAL FIX: Account for EV consumption BEFORE first window starts
+	# If current time is after previous window end but before next window start,
+	# we must reduce SOC by the expected consumption during that period
+	if ev_window_defs:
+		first_window = ev_window_defs[0]
+		first_window_start_index = first_window["start"]
+		
+		# If we're BEFORE the first window (i.e., there's a gap), we need to account for
+		# consumption that happened AFTER the previous window ended
+		if first_window_start_index > 0:
+			# Get the departure weekday of the PREVIOUS day's window
+			# This is the window that ended BEFORE the current first window
+			current_weekday = first_window.get("weekday", "").lower()
+			
+# FIXED: Removed pre-window consumption adjustment that caused double-counting
+		# Consumption is already accounted for in the effective_targets loop below (line 455)
+		# Do NOT subtract consumption here - it will be subtracted AGAIN when computing required_kwh
+		pass
 
 	# Compute effective target for each window by looking ahead so earlier windows cover future consumption
 	effective_targets: list[float] = [0.0] * len(ev_window_defs)
@@ -1061,7 +1081,15 @@ def _apply_ev_plan_to_forecast(forecast_df: pd.DataFrame, context: OptimizationC
 	"""
 	Helper to apply EV constraints to the forecast dataframe before solving.
 	Sets 'ev_available' (bool) and 'ev_driving_consumption_kwh' (float).
+	
+	CRITICAL FIX 2026-01-25:
+	Consumption is now distributed based on WEEKDAY using ev_window_requirements.
+	Each day's consumption (from input_number.energy_planner_ev_week_X_kwh) is distributed
+	across the "away" slots for that specific weekday.
 	"""
+	import pandas as pd
+	from datetime import timezone
+	
 	# Initialize columns if missing (safety check)
 	if 'ev_available' not in forecast_df.columns:
 		forecast_df['ev_available'] = False
@@ -1070,50 +1098,107 @@ def _apply_ev_plan_to_forecast(forecast_df: pd.DataFrame, context: OptimizationC
 
 	# 1. Mark availability based on ev_windows
 	# ev_windows is list of (start_idx, end_idx) where car IS available (plugged in)
-	# So we set True for those intervals.
-	# Reset to False first to be sure
 	forecast_df['ev_available'] = False
 	
 	if context.ev_windows:
 		for start_i, end_i in context.ev_windows:
-			# Clip indices to dataframe bounds
 			s = max(0, start_i)
 			e = min(len(forecast_df), end_i)
 			if s < e:
 				forecast_df.loc[s:e-1, 'ev_available'] = True
 
-	# 2. Add driving consumption when AWAY
-	# If we have a drain/consumption model for driving:
-	# "Driving Consumption is modelled as consumption when AWAY."
-	# We interpret context.ev_required_kwh as the need.
-	# However, the simple solver treats 'ev_driving_consumption_kwh' as energy LEAVING the battery.
-	# We need to distribute the deficit (ev_required_kwh) over the away periods?
-	# OR: The prompt says "Simple EV Model: Driving Consumption is consumption when AWAY".
-	# If we need to charge 30 kWh, that means the battery will lose 30 kWh during the driving trip (away period).
-	# So we should put that consumption into the away slots.
+	# 2. Distribute consumption using ev_window_requirements
+	# Each window has 'expected_consumption_kwh' and 'departure_weekday'
+	# The consumption happens AFTER departure, so we distribute it across that day's "away" slots
 	
-	val_kwh = getattr(context, 'ev_required_kwh', 0.0)
-	if val_kwh and val_kwh > 0:
-		# Find Away slots (ev_available == False)
-		# But only those BEFORE the next arrival (or just logical away slots?)
-		# Logic: If we need 30kWh by tomorrow 8am, and we drive today 8am-4pm, the drain happens 8am-4pm.
-		# For now, distribute evenly across all UNAVAILABLE slots in the horizon? 
-		# Or better: The gaps between windows.
+	ev_window_reqs = getattr(context, 'ev_window_requirements', [])
+	if not ev_window_reqs:
+		logger.info("No ev_window_requirements found - skipping weekday-based consumption distribution")
+		# Fallback to old uniform distribution if no window info
+		val_kwh = getattr(context, 'ev_required_kwh', 0.0)
+		if val_kwh and val_kwh > 0:
+			mask_away = ~forecast_df['ev_available']
+			away_count = mask_away.sum()
+			if away_count > 0:
+				drain_per_slot = val_kwh / away_count
+				forecast_df.loc[mask_away, 'ev_driving_consumption_kwh'] = drain_per_slot
+				logger.info(f"EV Consumption: Uniform distribution of {val_kwh:.1f} kWh across {away_count} away slots")
+		return
+	
+	logger.info(f"Applying weekday-based EV consumption distribution using {len(ev_window_reqs)} window requirements")
+	
+	# Build weekday -> consumption map from window requirements
+	# Key: departure_weekday (e.g., "mon" means car departs Monday morning and drives Monday)
+	# Value: expected_consumption_kwh for that day
+	day_consumption_map = {}
+	for req in ev_window_reqs:
+		departure_weekday = req.get("departure_weekday", "").lower()
+		consumption_kwh = float(req.get("expected_consumption_kwh", 0.0))
+		if departure_weekday and consumption_kwh > 0:
+			day_consumption_map[departure_weekday] = consumption_kwh
+			logger.info(f"  {departure_weekday}: {consumption_kwh:.1f} kWh expected consumption")
+	
+	if not day_consumption_map:
+		logger.info("No consumption data in ev_window_requirements - skipping distribution")
+		return  # No consumption to distribute
+	
+	day_keys = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+	tz = settings.timezone
+	
+	# Process each unique day in forecast
+	forecast_df['ev_driving_consumption_kwh'] = 0.0
+	
+	for day_key in day_keys:
+		if day_key not in day_consumption_map:
+			continue
 		
-		# Simplification: Distribute evenly across non-available slots up to the last window end?
-		# Actually, simple_solver.py logic:
-		# prob += battery_soc[t] == battery_soc[t-1] + ... - ev_driving_consumption[t]
-		# So if we put data here, it drains the battery.
+		consumption_kwh = day_consumption_map[day_key]
 		
-		mask_away = ~forecast_df['ev_available']
-		away_count = mask_away.sum()
+		# Find all timestamps for this weekday
+		day_idx = day_keys.index(day_key)
 		
-		if away_count > 0:
-			# Check if we have multiple windows / trips?
-			# Optimization: Just distribute over all 'away' slots.
-			# This ensures the battery drops by X kWh total when not plugged in.
-			drain_per_slot = val_kwh / away_count
-			forecast_df.loc[mask_away, 'ev_driving_consumption_kwh'] = drain_per_slot
+		for idx in forecast_df.index:
+			try:
+				ts = pd.to_datetime(forecast_df.loc[idx, 'timestamp'])
+				if ts.tzinfo is None:
+					ts = ts.tz_localize(timezone.utc)
+				ts_local = ts.astimezone(tz)
+				slot_weekday_idx = ts_local.weekday()  # 0=Monday
+				
+				if slot_weekday_idx != day_idx:
+					continue  # Not this weekday
+				
+				if forecast_df.loc[idx, 'ev_available']:
+					continue  # Skip charging window slots
+				
+				# This slot is an "away" slot on the correct weekday
+				# Mark it for consumption distribution
+				forecast_df.loc[idx, f'_temp_day_{day_key}'] = 1
+			except Exception as e:
+				logger.warning(f"Failed to check weekday for slot {idx}: {e}")
+				continue
+	
+	# Now distribute consumption across marked slots for each day
+	for day_key, consumption_kwh in day_consumption_map.items():
+		temp_col = f'_temp_day_{day_key}'
+		if temp_col not in forecast_df.columns:
+			continue
+		
+		day_mask = forecast_df[temp_col] == 1
+		away_count_this_day = day_mask.sum()
+		
+		if away_count_this_day > 0:
+			drain_per_slot = consumption_kwh / away_count_this_day
+			forecast_df.loc[day_mask, 'ev_driving_consumption_kwh'] = drain_per_slot
+			logger.info(
+				f"EV Consumption: {day_key} = {consumption_kwh:.1f} kWh distributed across {away_count_this_day} away slots "
+				f"({drain_per_slot:.3f} kWh/slot)"
+			)
+		else:
+			logger.warning(f"EV Consumption: {day_key} has consumption ({consumption_kwh:.1f} kWh) but NO away slots found!")
+		
+		# Clean up temp column
+		forecast_df.drop(columns=[temp_col], inplace=True)
 
 
 def run_once(now: Optional[datetime] = None) -> dict:
@@ -1192,10 +1277,14 @@ def run_once(now: Optional[datetime] = None) -> dict:
 		# Non-fatal: log but continue
 		print(f"Consumption sanity check failed: {e}")
 	
+	# CRITICAL FIX: Apply EV consumption BEFORE solver selection
+	# This ensures consumption columns exist regardless of solver type
+	_apply_ev_plan_to_forecast(forecast_frame, context, settings)
+	consumption_slots = (forecast_frame.get('ev_driving_consumption_kwh', pd.Series(dtype=float)) > 0).sum()
+	logger.info("EV consumption setup complete: %d slots with consumption", consumption_slots)
+	
 	if settings.use_linear_solver:
 		try:
-			# Apply EV plan helpers (columns for solver)
-			_apply_ev_plan_to_forecast(forecast_frame, context, settings)
 			logger.info("Starting simple linear solver...")
 			from .optimizer.simple_solver import solve_optimization_simple
 			result = solve_optimization_simple(forecast_frame, context)
@@ -1213,6 +1302,27 @@ def run_once(now: Optional[datetime] = None) -> dict:
 	# Force garbage collection to free LP model memory
 	import gc
 	gc.collect()
+	
+	# CRITICAL FIX: Preserve EV consumption columns from forecast_frame to result.plan
+	# Solvers don't automatically copy these columns, so we add them manually
+	print(f"[SCHEDULER DEBUG] Before column copy: forecast_frame has {list(forecast_frame.columns)}")
+	print(f"[SCHEDULER DEBUG] Before column copy: result.plan has {list(result.plan.columns)}")
+	logger.info("Before column copy: result.plan has %d columns", len(result.plan.columns))
+	for col in ['ev_driving_consumption_kwh', 'ev_available']:
+		if col in forecast_frame.columns and col not in result.plan.columns:
+			result.plan[col] = forecast_frame[col].values
+			print(f"[SCHEDULER DEBUG] OK Copied '{col}' from forecast to plan ({(result.plan[col] > 0).sum()} non-zero)")
+			logger.info("OK Copied column '%s' from forecast to plan (%d non-zero values)",
+						col, (result.plan[col] > 0).sum())
+		elif col in result.plan.columns:
+			print(f"[SCHEDULER DEBUG] OK Column '{col}' already exists in result.plan")
+			logger.info("OK Column '%s' already exists in result.plan", col)
+		else:
+			print(f"[SCHEDULER DEBUG] ERROR Column '{col}' NOT found in forecast_frame!")
+			logger.warning("ERROR Column '%s' not found in forecast_frame!", col)
+	print(f"[SCHEDULER DEBUG] After column copy: result.plan has {list(result.plan.columns)}")
+	logger.info("After column copy: result.plan has %d columns: %s", 
+				len(result.plan.columns), list(result.plan.columns))
 	
 	# Fallback: if model infeasible or not optimal, relax peak/EV gating and re-solve
 	if str(result.status).lower() not in {"optimal", "feasible"}:

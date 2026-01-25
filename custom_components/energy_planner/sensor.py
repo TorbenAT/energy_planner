@@ -51,6 +51,7 @@ PLAN_FIELDS = PLAN_FIELDS_HA if PLAN_FIELDS_HA else [
     "battery_in", "battery_out", "battery_soc", "battery_soc_pct",
     "battery_reserve_target", "battery_reserve_shortfall",
     "ev_charge", "ev_soc_kwh", "ev_soc_pct",
+    "ev_driving_consumption_kwh", "ev_available",
     "price_buy", "price_sell", "effective_sell_price",
     "grid_cost", "grid_revenue_effective", "grid_revenue", "cash_cost_dkk",
     "ev_bonus", "battery_cycle_cost", "battery_value_dkk", "objective_component",
@@ -93,13 +94,14 @@ async def async_setup_entry(
     scan_interval = timedelta(minutes=scan_interval_minutes)
 
     # Import compute_plan_report so the coordinator runs the full optimizer instead of just reading DB
+    # TEMPORARY: Force read_plan_from_db to test if it works
     try:
-        from energy_planner.reporting import compute_plan_report  # type: ignore
-        compute_fn = compute_plan_report
-    except ImportError:
         from energy_planner.reporting import read_plan_from_db  # type: ignore
         compute_fn = read_plan_from_db
-        LOGGER.warning("compute_plan_report not available, falling back to read_plan_from_db")
+        LOGGER.warning("TEMPORARY: Using read_plan_from_db instead of compute_plan_report for testing")
+    except ImportError:
+        from energy_planner.reporting import compute_plan_report  # type: ignore
+        compute_fn = compute_plan_report
 
     coordinator = EnergyPlanCoordinator(hass, update_interval=scan_interval, compute_fn=compute_fn)
 

@@ -129,6 +129,8 @@ class PlanReport:
                 "ev_soc_kwh": _clean(getattr(row, "ev_soc_kwh", getattr(row, "ev_soc", None))),
                 "ev_soc_pct": _clean(getattr(row, "ev_soc_pct", None)),
                 "ev_target_pct": _clean(getattr(row, "ev_target_pct", None)),
+                "ev_driving_consumption_kwh": _clean(getattr(row, "ev_driving_consumption_kwh", None)),
+                "ev_available": _clean(getattr(row, "ev_available", None)),
                 # Prices
                 "pv_forecast_kw": _clean(getattr(row, "pv_forecast_kw", None)),
                 "consumption_estimate_kw": _clean(getattr(row, "consumption_estimate_kw", None)),
@@ -458,9 +460,13 @@ def _prepare_plan_dataframe(
         plan["battery_soc_pct_delta"] = float("nan")
 
     if EV_BATTERY_CAPACITY_KWH > 0:
-        plan["ev_soc_pct"] = plan["ev_soc"].astype(float) / EV_BATTERY_CAPACITY_KWH * 100.0
+        # CRITICAL: Clip to 0-100% to prevent impossible values (e.g., 110%)
+        plan["ev_soc_pct"] = (plan["ev_soc"].astype(float) / EV_BATTERY_CAPACITY_KWH * 100.0).clip(0, 100)
+        # Also create ev_soc_kwh alias for sensor output (same value as ev_soc)
+        plan["ev_soc_kwh"] = plan["ev_soc"].astype(float)
     else:
         plan["ev_soc_pct"] = float("nan")
+        plan["ev_soc_kwh"] = float("nan")
 
     def classify_activity(row: pd.Series) -> str:
         """Classify the primary activity for this time slot.
@@ -1068,6 +1074,8 @@ def read_plan_from_db(now: Optional[datetime] = None) -> PlanReport:
             COALESCE(battery_soc_pct, 0) as battery_soc_pct,
             COALESCE(ev_soc_kwh, 0) as ev_soc_kwh,
             COALESCE(ev_soc_pct, 0) as ev_soc_pct,
+            COALESCE(ev_driving_consumption_kwh, 0) as ev_driving_consumption_kwh,
+            COALESCE(ev_available, 0) as ev_available,
             COALESCE(battery_reserve_target, 0) as battery_reserve_target,
             COALESCE(battery_reserve_shortfall, 0) as battery_reserve_shortfall,
             COALESCE(effective_sell_price, 0) as effective_sell_price,
@@ -1197,9 +1205,12 @@ def read_plan_from_db(now: Optional[datetime] = None) -> PlanReport:
     # Calculate battery SoC percentage
     plan_df["battery_soc_pct"] = (plan_df["battery_soc"] / BATTERY_CAPACITY_KWH * 100).clip(0, 100)
     
-    # Add ev columns if missing
-    if "ev_soc_pct" not in plan_df.columns:
+    # Calculate/fix EV SoC percentage from ev_soc_kwh (CRITICAL: always recalculate to ensure correctness)
+    if "ev_soc_kwh" in plan_df.columns and EV_BATTERY_CAPACITY_KWH > 0:
+        plan_df["ev_soc_pct"] = (plan_df["ev_soc_kwh"] / EV_BATTERY_CAPACITY_KWH * 100).clip(0, 100)
+    else:
         plan_df["ev_soc_pct"] = 0.0
+    
     if "ev_target_pct" not in plan_df.columns:
         plan_df["ev_target_pct"] = None
     
