@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Sequence
+from typing import Optional, Sequence, List
 
 import pandas as pd  # type: ignore
 import pulp as lp  # type: ignore
@@ -36,7 +36,7 @@ from ..constants import (
 logger = logging.getLogger(__name__)
 
 
-@dataclass(slots=True)
+@dataclass
 class OptimizationContext:
     start_timestamp: datetime
     battery_soc_kwh: float
@@ -84,17 +84,20 @@ class OptimizationContext:
     # Dynamic hardware limits
     battery_capacity_kwh: float = BATTERY_CAPACITY_KWH
     battery_min_soc_kwh: float = BATTERY_MIN_SOC_KWH
+    battery_maximum_pct: float = 100.0
     max_charge_kwh: float = MAX_BATTERY_CHARGE_KWH
     max_discharge_kwh: float = MAX_BATTERY_DISCHARGE_KWH
     max_ev_charge_kwh: float = MAX_EV_CHARGE_KWH
     ev_battery_capacity_kwh: float = EV_BATTERY_CAPACITY_KWH
+    use_linear_solver: bool = False
 
 
-@dataclass(slots=True)
+@dataclass
 class OptimizationResult:
     plan: pd.DataFrame
     objective_value: float
     status: str
+    notes: List[str] = field(default_factory=list)
 
 
 def _diagnose_unmet_slot(t: int, plan_row: pd.Series, forecast_row: pd.Series, ctx: OptimizationContext) -> str:
@@ -181,10 +184,19 @@ EV_CHARGE_ALLOWED_STATUSES = {
 
 
 def solve_quarter_hour(forecast: pd.DataFrame, ctx: OptimizationContext) -> OptimizationResult:
+    # Dispatch to linear solver if requested via context
+    if getattr(ctx, "use_linear_solver", False):
+        try:
+            from .simple_solver import solve_optimization_simple
+            logger.info("Starting Simple Economic Linear Solver (PuLP)...")
+            return solve_optimization_simple(forecast, ctx)
+        except Exception as e:
+            logger.error("Simple solver failed, falling back to heuristic: %s", e, exc_info=True)
+
     periods = len(forecast)
     if periods == 0:
         empty = pd.DataFrame(columns=["g_buy", "g_sell", "battery_in", "battery_out", "ev_charge"])
-        return OptimizationResult(empty, 0.0, "empty")
+        return OptimizationResult(empty, 0.0, "empty", notes=[])
 
     # Calculate per-slot limits based on resolution
     slots_per_hour = 60.0 / max(ctx.resolution_minutes, 1)
@@ -731,4 +743,4 @@ def solve_quarter_hour(forecast: pd.DataFrame, ctx: OptimizationContext) -> Opti
     
     plan["house_unmet_reason"] = house_unmet_reasons
 
-    return OptimizationResult(plan=plan, objective_value=objective_value, status=status)
+    return OptimizationResult(plan=plan, objective_value=objective_value, status=status, notes=[])

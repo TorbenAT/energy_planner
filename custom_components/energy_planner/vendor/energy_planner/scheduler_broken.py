@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 import json
 from datetime import datetime, timedelta, timezone
-
-logger = logging.getLogger(__name__)
 from typing import Any, List, Optional, Tuple
 from dataclasses import replace as dc_replace
 
@@ -25,7 +22,7 @@ from .db import create_session_factory, session_scope, write_plan_to_mariadb
 from .ha_client import HomeAssistantClient
 from .models import OptimizerRun
 from .optimizer.solver import OptimizationContext, solve_quarter_hour
-# from .optimizer.simple_solver import solve_optimization_simple (Moved to local import to prevent load failure if pulp is missing)
+from .optimizer.simple_solver import solve_optimization_simple
 from .policy import AdaptivePolicy, compute_adaptive_policy
 from .utils.time import ensure_timezone, to_utc_naive
 
@@ -111,9 +108,6 @@ def build_context(
 	curr_min_soc_pct = dyn_min_soc_pct if dyn_min_soc_pct is not None else 15.0
 	curr_min_soc_kwh = (curr_min_soc_pct / 100.0) * curr_batt_cap_kwh
 
-	dyn_max_soc_pct = ha.fetch_numeric_state(settings.battery_max_soc_sensor)
-	curr_max_soc_pct = dyn_max_soc_pct if dyn_max_soc_pct is not None else 100.0
-
 	from .constants import MAX_BATTERY_CHARGE_KWH, MAX_BATTERY_DISCHARGE_KWH
 	dyn_charge_watts = ha.fetch_numeric_state(settings.battery_charge_power_sensor)
 	if dyn_charge_watts is not None:
@@ -128,30 +122,15 @@ def build_context(
 	else:
 		curr_max_discharge_kwh = MAX_BATTERY_DISCHARGE_KWH
 
-	battery_soc_pct = ha.fetch_numeric_state(settings.battery_soc_sensor)
-	ev_soc_pct = ha.fetch_numeric_state(settings.ev_soc_sensor)
-	
-	# CRITICAL VALIDATION: Require valid SOC data for BOTH battery and EV before proceeding
-	# Missing SOC data leads to incorrect planning and wrong energy calculations for the next 15 min
-	if battery_soc_pct is None or battery_soc_pct < 0 or battery_soc_pct > 100:
-		raise ValueError(
-			f"❌ OPTIMIZATION BLOCKED: Battery SOC is invalid (sensor={settings.battery_soc_sensor}, "
-			f"value={battery_soc_pct}). Cannot proceed with optimization without valid battery state of charge. "
-			f"Check that {settings.battery_soc_sensor} is available and returns a value between 0-100%."
-		)
-	
-	if ev_soc_pct is None or ev_soc_pct < 0 or ev_soc_pct > 100:
-		raise ValueError(
-			f"❌ OPTIMIZATION BLOCKED: EV SOC is invalid (sensor={settings.ev_soc_sensor}, "
-			f"value={ev_soc_pct}). Cannot proceed with optimization without valid EV state of charge. "
-			f"Check that {settings.ev_soc_sensor} is available and returns a value between 0-100%. "
-			f"If EV is disconnected, the optimizer cannot safely plan charging."
-		)
-	
-	# Convert validated percentages to kWh
+	battery_soc_pct = ha.fetch_numeric_state(settings.battery_soc_sensor) or 0.0
 	battery_soc_kwh = max(0.0, min(100.0, battery_soc_pct)) / 100 * curr_batt_cap_kwh
 	battery_soc_kwh = max(curr_min_soc_kwh, min(curr_batt_cap_kwh, battery_soc_kwh))
-	
+
+	ev_soc_pct = ha.fetch_numeric_state(settings.ev_soc_sensor)
+	# If EV is disconnected (no SoC), assume low starting point for planning (10% = ~7.5 kWh)
+	# This ensures full charging recommendation in advisory mode
+	if ev_soc_pct is None or ev_soc_pct <= 0:
+		ev_soc_pct = 10.0
 	ev_soc_kwh = max(0.0, min(100.0, ev_soc_pct)) / 100 * EV_BATTERY_CAPACITY_KWH
 
 	target_soc_pct = ha.fetch_numeric_state(settings.ev_target_soc_sensor) or 90.0
@@ -777,10 +756,8 @@ def build_context(
 		# Dynamic hardware limits
 		battery_capacity_kwh=curr_batt_cap_kwh,
 		battery_min_soc_kwh=curr_min_soc_kwh,
-		battery_maximum_pct=curr_max_soc_pct,
 		max_charge_kwh=curr_max_charge_kwh,
 		max_discharge_kwh=curr_max_discharge_kwh,
-		use_linear_solver=settings.use_linear_solver,
 	)
 
 	return context, policy
@@ -1057,65 +1034,6 @@ def summarize_plan(
 	}
 
 
-def _apply_ev_plan_to_forecast(forecast_df: pd.DataFrame, context: OptimizationContext, settings: 'PlannerSettings') -> None:
-	"""
-	Helper to apply EV constraints to the forecast dataframe before solving.
-	Sets 'ev_available' (bool) and 'ev_driving_consumption_kwh' (float).
-	"""
-	# Initialize columns if missing (safety check)
-	if 'ev_available' not in forecast_df.columns:
-		forecast_df['ev_available'] = False
-	if 'ev_driving_consumption_kwh' not in forecast_df.columns:
-		forecast_df['ev_driving_consumption_kwh'] = 0.0
-
-	# 1. Mark availability based on ev_windows
-	# ev_windows is list of (start_idx, end_idx) where car IS available (plugged in)
-	# So we set True for those intervals.
-	# Reset to False first to be sure
-	forecast_df['ev_available'] = False
-	
-	if context.ev_windows:
-		for start_i, end_i in context.ev_windows:
-			# Clip indices to dataframe bounds
-			s = max(0, start_i)
-			e = min(len(forecast_df), end_i)
-			if s < e:
-				forecast_df.loc[s:e-1, 'ev_available'] = True
-
-	# 2. Add driving consumption when AWAY
-	# If we have a drain/consumption model for driving:
-	# "Driving Consumption is modelled as consumption when AWAY."
-	# We interpret context.ev_required_kwh as the need.
-	# However, the simple solver treats 'ev_driving_consumption_kwh' as energy LEAVING the battery.
-	# We need to distribute the deficit (ev_required_kwh) over the away periods?
-	# OR: The prompt says "Simple EV Model: Driving Consumption is consumption when AWAY".
-	# If we need to charge 30 kWh, that means the battery will lose 30 kWh during the driving trip (away period).
-	# So we should put that consumption into the away slots.
-	
-	val_kwh = getattr(context, 'ev_required_kwh', 0.0)
-	if val_kwh and val_kwh > 0:
-		# Find Away slots (ev_available == False)
-		# But only those BEFORE the next arrival (or just logical away slots?)
-		# Logic: If we need 30kWh by tomorrow 8am, and we drive today 8am-4pm, the drain happens 8am-4pm.
-		# For now, distribute evenly across all UNAVAILABLE slots in the horizon? 
-		# Or better: The gaps between windows.
-		
-		# Simplification: Distribute evenly across non-available slots up to the last window end?
-		# Actually, simple_solver.py logic:
-		# prob += battery_soc[t] == battery_soc[t-1] + ... - ev_driving_consumption[t]
-		# So if we put data here, it drains the battery.
-		
-		mask_away = ~forecast_df['ev_available']
-		away_count = mask_away.sum()
-		
-		if away_count > 0:
-			# Check if we have multiple windows / trips?
-			# Optimization: Just distribute over all 'away' slots.
-			# This ensures the battery drops by X kWh total when not plugged in.
-			drain_per_slot = val_kwh / away_count
-			forecast_df.loc[mask_away, 'ev_driving_consumption_kwh'] = drain_per_slot
-
-
 def run_once(now: Optional[datetime] = None) -> dict:
 	settings = load_settings()
 	ha = HomeAssistantClient(settings.ha_base_url, settings.ha_api_key)
@@ -1188,29 +1106,65 @@ def run_once(now: Optional[datetime] = None) -> dict:
 					if diff_pct > 20.0:  # More than 20% difference
 						print(f"⚠️ Consumption estimate sanity check: EV window forecast ({forecast_mean:.2f} kW) differs significantly from historical ({hist_mean:.2f} kW, {diff_pct:.1f}% difference)")
 						print("   This may indicate consumption calibration issues or unusual conditions.")
-	except Exception as e:
-		# Non-fatal: log but continue
-		print(f"Consumption sanity check failed: {e}")
-	
-	if settings.use_linear_solver:
-		try:
-			# Apply EV plan helpers (columns for solver)
-			_apply_ev_plan_to_forecast(forecast_frame, context, settings)
-			logger.info("Starting simple linear solver...")
-			from .optimizer.simple_solver import solve_optimization_simple
-			result = solve_optimization_simple(forecast_frame, context)
-			logger.info("Simple solver completed with status: %s", result.status)
-		except Exception as e:
-			logger.error("Simple solver failed: %s", e, exc_info=True)
-			result = solve_quarter_hour(forecast_frame, context)
-			if hasattr(result, "notes"):
-				result.notes.append(f"Simple solver FEJL: {str(e)[:100]}. Fallback til standard solver.")
-	else:
-		logger.info("Using standard heuristic solver.")
-		result = solve_quarter_hour(forecast_frame, context)
-		if hasattr(result, "notes"):
-			result.notes.append("Standard Heuristisk Solver aktiv (Linear solver deaktiveret).")
-	# Force garbage collection to free LP model memory
+def _apply_ev_plan_to_forecast(df: pd.DataFrame, ctx: OptimizationContext) -> None:
+    """
+    Populates 'ev_available' and 'ev_driving_consumption_kwh' columns for SimpleLinearSolver.
+    Based on ev_windows logic in Context.
+    """
+    if not ctx.ev_window_requirements:
+        return
+
+    # Reset defaults
+    df["ev_available"] = True
+    df["ev_driving_consumption_kwh"] = 0.0
+
+    # 1. Identify "Home" vs "Away" slots
+    # simple_solver needs to know when it CANNOT charge.
+    # We assume slots inside ctx.ev_windows are Home (True).
+    # All other slots are Away (False).
+    
+    valid_charging = pd.Series([False] * len(df), index=df.index)
+    
+    # If no windows defined, maybe we assume always home? 
+    # But here we have requirements, so windows exist.
+    
+    for start, end in ctx.ev_windows:
+        s = max(0, start)
+        e = min(len(df), end)
+        if e > s:
+            valid_charging.iloc[s:e] = True
+            
+    df["ev_available"] = valid_charging.values
+    
+    # 2. Distribute Driving Consumption (Away slots)
+    # expected_consumption_kwh is the energy depleted BEFORE arriving at the window.
+    # We distribute this in the gap PRECEDING the window.
+    
+    for req in ctx.ev_window_requirements:
+        kwh_needed = float(req.get("expected_consumption_kwh", 0))
+        if kwh_needed <= 0:
+            continue
+            
+        win_start = req.get("start_index")
+        
+        # Find the gap before this window
+        gap_slots = []
+        curr = int(win_start) - 1
+        while curr >= 0:
+            if valid_charging.iloc[curr]:
+                break # Hit previous window (Home)
+            gap_slots.append(curr)
+            curr -= 1
+            
+        if gap_slots:
+            kwh_per_slot = kwh_needed / len(gap_slots)
+            for idx in gap_slots:
+                # Add consumption (accumulative if multiple overlap, though unlikely)
+                current_val = df.iloc[idx]["ev_driving_consumption_kwh"]
+                df.iloc[idx, df.columns.get_loc("ev_driving_consumption_kwh")] = current_val + kwh_per_slot
+
+
+def run_optimization(forecast_frame: pd.DataFrame, settings: Settings, ha: HomeAssistantClient, pipeline: DataPipeline) -> dict:
 	import gc
 	gc.collect()
 	

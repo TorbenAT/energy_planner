@@ -1,7 +1,7 @@
 {
   "domain": "energy_planner",
   "name": "Energy Planner",
-  "version": "0.3.0",
+  "version": "0.3.3",
   "documentation": "https://github.com/TorbenAT/energy_planner",
   "config_flow": true,
   "requirements": [

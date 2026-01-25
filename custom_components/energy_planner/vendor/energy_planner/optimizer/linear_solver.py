@@ -34,7 +34,7 @@ def solve_optimization_linear(
     # Time horizon
     T = len(forecast_df)
     if T == 0:
-        return OptimizationResult(pd.DataFrame(), 0.0, "Empty Forecast")
+        return OptimizationResult(pd.DataFrame(), 0.0, "Empty Forecast", notes=[])
 
     # Resolution handling
     res_min = ctx.resolution_minutes if ctx.resolution_minutes > 0 else 15
@@ -216,4 +216,4 @@ def solve_optimization_linear(
         rows.append(row)
         
     result_df = pd.DataFrame(rows)
-    return OptimizationResult(result_df, lp.value(prob.objective), lp.LpStatus[status])
+    return OptimizationResult(result_df, lp.value(prob.objective), lp.LpStatus[status], notes=[])

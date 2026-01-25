@@ -529,13 +529,14 @@ def _prepare_plan_dataframe(
         
         # Check EV charging
         if row.get("ev_charge", 0) > threshold:
-            grid_to_ev = row.get("grid_to_ev", 0)
-            pv_to_ev = row.get("pv_to_ev", 0) + row.get("prod_to_ev", 0)
-            batt_to_ev = row.get("batt_to_ev", 0)
-            if grid_to_ev > (pv_to_ev + batt_to_ev):
-                modes.append("EV(Grid)")
-            else:
+            if row.get("prod_to_ev", 0) > threshold:
                 modes.append("EV(Solar)")
+            elif row.get("grid_to_ev", 0) > threshold:
+                modes.append("EV(Grid)")
+            elif row.get("batt_to_ev", 0) > threshold:
+                modes.append("EV(Batt)")
+            else:
+                modes.append("EV(Unknown)")
         
         # Check battery grid charging
         grid_to_batt = row.get("grid_to_batt", 0)
@@ -755,6 +756,9 @@ def _prepare_plan_dataframe(
     hourly = hourly.merge(soc_group, on="hour", how="left")
 
     notes: List[str] = []
+    if hasattr(result, "notes") and result.notes:
+        notes.extend(result.notes)
+    
     if pipeline.last_consumption_note:
         notes.append(pipeline.last_consumption_note)
 
@@ -987,9 +991,10 @@ def build_plan_report(
     # Surface consumption calibration note if the forecast included it
     try:
         if "consumption_calibration_note" in forecast.columns:
-            notes = forecast["consumption_calibration_note"].dropna().unique().tolist()
-            if notes:
-                summary["consumption_calibration_note"] = str(notes[0])
+            extra_notes = forecast["consumption_calibration_note"].dropna().unique().tolist()
+            if extra_notes:
+                notes.extend(extra_notes)
+                summary["consumption_calibration_note"] = str(extra_notes[0])
     except Exception:
         pass
 

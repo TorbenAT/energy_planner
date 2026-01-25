@@ -894,32 +894,88 @@ class DataPipeline:
         
         # CRITICAL: Verify consumption forecast has reasonable values
         zero_count = (df["consumption_estimate_kw"] == 0).sum()
-        if zero_count > 4:
+        non_zero_count = (df["consumption_estimate_kw"] > 0).sum()
+        mean_consumption = df["consumption_estimate_kw"].mean() if len(df) > 0 else 0.0
+        
+        # Improved validation: Allow SOME zero slots (< 50% of data) if we have valid data elsewhere
+        # OR if the entire dataset is from a default profile (which is acceptable fallback)
+        total_slots = len(df)
+        zero_ratio = zero_count / total_slots if total_slots > 0 else 0.0
+        is_mostly_zeros = zero_ratio > 0.5
+        is_all_zeros = zero_count == total_slots
+        has_valid_data = mean_consumption > 0.01 and non_zero_count > 0
+        
+        if is_all_zeros:
+            # Entire dataset is zero - must use default profile
+            logger.warning(
+                "⚠️ HOUSE LOAD FORECAST: All %d slots have ZERO consumption. "
+                "Using default consumption profile as emergency fallback.",
+                total_slots
+            )
+            df["consumption_estimate_kw"] = self._default_consumption_series(df.index)
+            self.last_consumption_note = (
+                "Emergency fallback: ALL slots had zero consumption, default profile applied."
+            )
+        elif is_mostly_zeros:
+            # More than 50% zero - likely sensor issue, use default profile but log warning
+            logger.warning(
+                "⚠️ HOUSE LOAD FORECAST: %d of %d slots (%.1f%%) have ZERO consumption. "
+                "This suggests a sensor configuration problem. Using default profile.",
+                zero_count,
+                total_slots,
+                zero_ratio * 100
+            )
+            df["consumption_estimate_kw"] = self._default_consumption_series(df.index)
+            self.last_consumption_note = (
+                f"Fallback to default profile: {zero_ratio*100:.0f}% slots had zero consumption (sensor issue suspected)."
+            )
+        elif zero_count > 4 and not has_valid_data:
+            # Many zeros AND no valid data - hard error
             logger.error(
-                "❌ HOUSE LOAD FORECAST BROKEN – %d slots with ZERO consumption detected! "
+                "❌ HOUSE LOAD FORECAST BROKEN – %d slots with ZERO consumption and mean=%.3f kW! "
                 "Sample timestamps: %s",
                 zero_count,
+                mean_consumption,
                 df[df["consumption_estimate_kw"] == 0]["timestamp"].head(10).tolist(),
             )
-            # Log sample of the data for debugging
             logger.error("Consumption forecast sample:\n%s", df[["timestamp", "consumption_estimate_kw"]].head(20))
             raise ValueError(
-                f"❌ HOUSE LOAD FORECAST BROKEN – {zero_count} slots with ZERO consumption detected. "
+                f"❌ HOUSE LOAD FORECAST BROKEN – {zero_count} slots with ZERO consumption (mean={mean_consumption:.3f}). "
                 f"Check consumption sensor configuration and data availability. "
                 f"Last consumption note: {self.last_consumption_note}"
+            )
+        elif zero_count > 4:
+            # Some zeros but we have valid data - just warn
+            logger.warning(
+                "⚠️ HOUSE LOAD FORECAST WARNING: %d of %d slots (%.1f%%) have ZERO consumption, "
+                "but mean=%.3f kW suggests valid data elsewhere. Proceeding with caution.",
+                zero_count,
+                total_slots,
+                zero_ratio * 100,
+                mean_consumption
             )
         
         # Log consumption forecast summary for visibility
         logger.info(
-            "Consumption forecast: min=%.3f, max=%.3f, mean=%.3f kW | Zero slots: %d/%d | Note: %s",
+            "Consumption forecast: min=%.3f, max=%.3f, mean=%.3f kW | Zero slots: %d/%d (%.1f%%) | Note: %s",
             df["consumption_estimate_kw"].min(),
             df["consumption_estimate_kw"].max(),
-            df["consumption_estimate_kw"].mean(),
+            mean_consumption,
             zero_count,
-            len(df),
+            total_slots,
+            zero_ratio * 100,
             self.last_consumption_note or "N/A",
         )
         
+        # Initialize EV columns for Simple Linear Solver compatibility
+        # Defaults: EV Home (True), No driving (0.0)
+        # These will be populated by scheduler.py based on window logic
+        if "ev_available" not in df.columns:
+            df["ev_available"] = True
+            
+        if "ev_driving_consumption_kwh" not in df.columns:
+            df["ev_driving_consumption_kwh"] = 0.0
+
         return df
 
     def fetch_and_record_actuals(self, hours_back: int = 6) -> None:
