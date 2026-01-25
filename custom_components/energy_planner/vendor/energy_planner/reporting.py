@@ -472,9 +472,9 @@ def _prepare_plan_dataframe(
         """Classify the primary activity for this time slot.
         
         Shows combinations when multiple significant flows occur simultaneously.
-        Threshold: 0.01 kWh (10 Wh) to filter out numerical noise.
+        Threshold: 0.1 kWh (100 Wh) to filter out numerical noise and night-time PV artifacts.
         """
-        threshold = 0.01
+        threshold = 0.1
         activities = []
         
         # Priority 1: EV charging (most important to show)
@@ -523,8 +523,9 @@ def _prepare_plan_dataframe(
         
         Translates flows into user-friendly mode names matching input_select.energy_system_mode options.
         Combines modes when multiple activities occur simultaneously.
+        Threshold: 0.5 kWh (2 kW average) to avoid mis-labeling trace PV as solar mode.
         """
-        threshold = 0.01
+        threshold = 0.5
         modes = []
         
         # Debug: Log first row to see what columns are available
